@@ -19,8 +19,7 @@
 <body>
 <div id="root"><div id="boot">сад просыпается…</div></div>
 <script type="text/babel" data-presets="react">
-/* ═══ «Мой сад» — автономная версия ═══
-   Перед публикацией впишите адрес вашего Cloudflare Worker (см. ИНСТРУКЦИЯ.md): */
+/* ═══ «Мой сад» — автономная версия ═══ */
 const PROXY_URL = "https://moy-sad.cherninmaxim.workers.dev";
 
 const AI_READY = /^https?:\/\//.test(PROXY_URL);
@@ -675,6 +674,7 @@ function MyGarden() {
               🌷 Вишлист{wishlist.length > 0 ? ` · ${wishlist.length}` : ""}
             </Chip>
             <Chip active={view === "stats"} onClick={() => setView("stats")}>📊 Статистика</Chip>
+            <Chip active={view === "setup"} onClick={() => setView("setup")}>🏡 Квартира</Chip>
             <div style={{ flex: 1 }} />
             <Chip active={view === "add"} onClick={() => setView("add")}>+ Новое растение</Chip>
           </nav>
@@ -730,6 +730,7 @@ function MyGarden() {
             prefillName={prefillName}
             spots={spotChoices}
             apartment={apartment}
+            onEditPlaces={() => setView("setup")}
             onDone={(plant) => {
               const np = [plant, ...plants];
               const nj = addJournal(plant.id, "event", "Добавлено в каталог 🌱");
@@ -770,6 +771,13 @@ function MyGarden() {
           <PlantView
             plant={openPlant}
             apartment={apartment}
+            spots={spotChoices}
+            onMove={(loc, spotStr) => {
+              const np = plants.map((x) => (x.id === openPlant.id ? { ...x, location: loc, spot: spotStr } : x));
+              const nj = addJournal(openPlant.id, "event", "Переставлено: " + spotStr + " 🪴");
+              update(np, nj);
+              showToast("Переставлено 🪴");
+            }}
             entries={journal[openPlant.id] || []}
             dueInfo={dueInfo(openPlant)}
             onBack={() => setView("garden")}
@@ -1008,7 +1016,7 @@ function TodayView({ dueList, balconyAutumn, plants, dueInfoFn, onWater, onFeed,
 }
 
 /* ─────────────────────────  Добавление растения  ───────────────────────── */
-function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apartment }) {
+function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apartment, onEditPlaces }) {
   const [name, setName] = useState(prefillName || "");
   const [placeHint, setPlaceHint] = useState(null);
   const [placeBusy, setPlaceBusy] = useState(false);
@@ -1084,6 +1092,12 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
         </div>
         <input style={inputStyle} value={spot} onChange={(e) => setSpot(e.target.value)}
           placeholder="или уточните своими словами: полка над диваном…" />
+        {onEditPlaces && (
+          <button onClick={onEditPlaces}
+            style={{ ...sans, background: "none", border: "none", color: C.sage, fontSize: 12, cursor: "pointer", textDecoration: "underline", padding: 0, marginTop: 6 }}>
+            нет нужного места? добавить в настройках квартиры
+          </button>
+        )}
       </Field>
 
       <div style={{ margin: "-4px 0 16px" }}>
@@ -1182,8 +1196,9 @@ function PassportGrid({ care }) {
 }
 
 /* ─────────────────────────  Карточка растения  ───────────────────────── */
-function PlantView({ plant, apartment, entries, dueInfo, onBack, onWater, onFeed, onDelete, onNote, onDiagnosis, onUpdateCare, showToast }) {
+function PlantView({ plant, apartment, spots, onMove, entries, dueInfo, onBack, onWater, onFeed, onDelete, onNote, onDiagnosis, onUpdateCare, showToast }) {
   const [note, setNote] = useState("");
+  const [moving, setMoving] = useState(false);
   const [careBusy, setCareBusy] = useState(false);
   const [qa, setQa] = useState([]);
   const [qaInput, setQaInput] = useState("");
@@ -1259,7 +1274,22 @@ function PlantView({ plant, apartment, entries, dueInfo, onBack, onWater, onFeed
           <div style={{ ...sans, fontSize: 13, color: C.moss, marginTop: 6 }}>
             {plant.location === "balcony" ? "🌤 балкон" : "🏠 дома"}
             {plant.spot ? ` · ${plant.spot}` : ""} · {plant.ownedSince ? `у вас с ${fmtMonth(plant.ownedSince)}` : `в каталоге с ${fmtDate(plant.addedAt)}`}
+            {" · "}
+            <button onClick={() => setMoving(!moving)}
+              style={{ ...sans, background: "none", border: "none", color: C.water, fontSize: 13, cursor: "pointer", textDecoration: "underline", padding: 0 }}>
+              переставить
+            </button>
           </div>
+          {moving && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+              {(spots || []).map((s) => (
+                <Chip key={s.spot} active={plant.spot === s.spot}
+                  onClick={() => { onMove(s.location, s.spot); setMoving(false); }}>
+                  {s.label}
+                </Chip>
+              ))}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
             <Btn small tone="water" onClick={onWater}>💧 Полить</Btn>
             <Btn small tone="moss" onClick={onFeed}>🌿 Подкормить</Btn>
@@ -1375,12 +1405,6 @@ function PlantView({ plant, apartment, entries, dueInfo, onBack, onWater, onFeed
 
       <div style={{ marginTop: 22 }}>
         <h3 style={{ ...serif, fontWeight: 400, fontSize: 18, margin: "0 0 10px" }}>Дневник</h3>
-        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-          <input style={{ ...inputStyle, flex: 1 }} value={note} onChange={(e) => setNote(e.target.value)}
-            placeholder="Новый лист! / переставила к окну…"
-            onKeyDown={(e) => { if (e.key === "Enter" && note.trim()) { onNote(note.trim()); setNote(""); } }} />
-          <Btn small onClick={() => { if (note.trim()) { onNote(note.trim()); setNote(""); } }}>Записать</Btn>
-        </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
           <input style={{ ...inputStyle, flex: 1 }} value={note} onChange={(e) => setNote(e.target.value)}
             placeholder="Новый лист! / переставила к окну…"
