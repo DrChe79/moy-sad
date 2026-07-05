@@ -35,6 +35,10 @@ const appStorage = {
     localStorage.setItem(key, value);
     return { key, value };
   },
+  async delete(key) {
+    localStorage.removeItem(key);
+    return { key, deleted: true };
+  },
 };
 
 /* ─────────────────────────  Палитра «нежный ботанический»  ───────────────────────── */
@@ -112,6 +116,21 @@ function compressImage(file, maxSide, quality) {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+/* ─────────────────────────  Синхронизация между устройствами  ───────────────────────── */
+const SYNC_BASE = PROXY_URL;
+
+function genSyncCode() {
+  const abc = "abcdefghjkmnpqrstuvwxyz23456789";
+  const a = new Uint32Array(16);
+  crypto.getRandomValues(a);
+  let s = "";
+  for (let i = 0; i < 16; i++) {
+    s += abc[a[i] % abc.length];
+    if (i % 4 === 3 && i < 15) s += "-";
+  }
+  return "sad-" + s;
 }
 
 /* ─────────────────────────  Квартира (профиль пользователя)  ───────────────────────── */
@@ -514,23 +533,62 @@ function MyGarden() {
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState(null);
   const [mood, setMood] = useState("");
+  const [sync, setSync] = useState({ code: null, at: null });
+  const syncTimer = useRef(null);
 
   /* ── загрузка / сохранение ── */
   useEffect(() => {
     (async () => {
+      let localStr = null;
+      let localUpdated = 0;
       try {
         const res = await appStorage.get("garden:data");
         if (res && res.value) {
+          localStr = res.value;
           const d = JSON.parse(res.value);
           setPlants(d.plants || []);
           setJournal(d.journal || {});
           setWishlist(d.wishlist || []);
           setProfile(d.profile || null);
+          localUpdated = d.updatedAt || 0;
         }
       } catch (e) {
         /* сада ещё нет — начинаем с чистого листа */
       }
+
+      let code = null;
+      if (SYNC_BASE) {
+        try {
+          const s = await appStorage.get("garden:sync");
+          code = (JSON.parse(s.value) || {}).code || null;
+        } catch (e) { /* синхронизация не включена */ }
+      }
+      if (code) setSync({ code, at: null });
       setLoaded(true);
+
+      if (code) {
+        try {
+          const r = await fetch(SYNC_BASE + "/sync/get?code=" + encodeURIComponent(code));
+          if (r.ok) {
+            const j = await r.json();
+            if (j && j.data && (j.updatedAt || 0) > localUpdated) {
+              const d = JSON.parse(j.data);
+              setPlants(d.plants || []);
+              setJournal(d.journal || {});
+              setWishlist(d.wishlist || []);
+              setProfile(d.profile || null);
+              await appStorage.set("garden:data", j.data);
+              setSync({ code, at: Date.now() });
+            } else if (localStr && localUpdated > ((j && j.updatedAt) || 0)) {
+              pushNow(code, localStr);
+            } else {
+              setSync({ code, at: Date.now() });
+            }
+          } else if (r.status === 404 && localStr) {
+            pushNow(code, localStr);
+          }
+        } catch (e) { /* офлайн — поработаем локально, подтянется позже */ }
+      }
     })();
   }, []);
 
@@ -554,19 +612,79 @@ function MyGarden() {
   }, [loaded]);
 
   async function persist(nextPlants, nextJournal, nextWishlist, nextProfile) {
+    const payload = JSON.stringify({
+      plants: nextPlants,
+      journal: nextJournal,
+      wishlist: nextWishlist,
+      profile: nextProfile,
+      updatedAt: Date.now(),
+    });
     try {
-      await appStorage.set(
-        "garden:data",
-        JSON.stringify({
-          plants: nextPlants,
-          journal: nextJournal,
-          wishlist: nextWishlist,
-          profile: nextProfile,
-        })
-      );
+      await appStorage.set("garden:data", payload);
     } catch (e) {
       showToast("Не удалось сохранить — проверьте связь");
     }
+    if (SYNC_BASE && sync.code) schedulePush(sync.code, payload);
+  }
+
+  async function pushNow(code, payload) {
+    try {
+      const r = await fetch(SYNC_BASE + "/sync/put", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, data: payload }),
+      });
+      if (r.ok) {
+        setSync((s) => ({ ...s, at: Date.now() }));
+        return true;
+      }
+    } catch (e) { /* офлайн — уйдёт при следующем изменении */ }
+    return false;
+  }
+
+  function schedulePush(code, payload) {
+    if (syncTimer.current) clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(() => { pushNow(code, payload); }, 1500);
+  }
+
+  async function enableSync() {
+    const code = genSyncCode();
+    const payload = JSON.stringify({ plants, journal, wishlist, profile, updatedAt: Date.now() });
+    const ok = await pushNow(code, payload);
+    if (!ok) { showToast("Не удалось включить — проверьте связь"); return; }
+    try { await appStorage.set("garden:sync", JSON.stringify({ code })); } catch (e) {}
+    setSync({ code, at: Date.now() });
+    showToast("Синхронизация включена 🔗");
+  }
+
+  async function connectSync(codeRaw) {
+    const code = (codeRaw || "").trim().toLowerCase();
+    if (!code) return;
+    if (plants.length > 0 && !window.confirm("Сад на этом устройстве будет заменён садом из кода. Продолжить?")) return;
+    try {
+      const r = await fetch(SYNC_BASE + "/sync/get?code=" + encodeURIComponent(code));
+      if (r.status === 404) { showToast("Сад с таким кодом не найден"); return; }
+      if (!r.ok) throw new Error();
+      const j = await r.json();
+      const d = JSON.parse(j.data);
+      setPlants(d.plants || []);
+      setJournal(d.journal || {});
+      setWishlist(d.wishlist || []);
+      setProfile(d.profile || null);
+      await appStorage.set("garden:data", j.data);
+      await appStorage.set("garden:sync", JSON.stringify({ code }));
+      setSync({ code, at: Date.now() });
+      setView("garden");
+      showToast("Сад подключён 🔗");
+    } catch (e) {
+      showToast("Не получилось — проверьте код и связь");
+    }
+  }
+
+  async function disableSync() {
+    try { await appStorage.delete("garden:sync"); } catch (e) {}
+    setSync({ code: null, at: null });
+    showToast("Синхронизация отключена на этом устройстве");
   }
 
   function update(nextPlants, nextJournal, nextWishlist) {
@@ -751,6 +869,11 @@ function MyGarden() {
             }}
             onCancel={() => setView("garden")}
             onImport={() => importRef.current && importRef.current.click()}
+            syncAvailable={!!SYNC_BASE}
+            sync={sync}
+            onEnableSync={enableSync}
+            onConnectSync={connectSync}
+            onDisableSync={disableSync}
           />
         ) : (
         <>
@@ -1922,7 +2045,19 @@ function StatsView({ plants, journal, onOpen }) {
 }
 
 /* ─────────────────────────  Профиль квартиры  ───────────────────────── */
-function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport }) {
+function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, syncAvailable, sync, onEnableSync, onConnectSync, onDisableSync }) {
+  const [connCode, setConnCode] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  function copyCode() {
+    if (navigator.clipboard && navigator.clipboard.writeText && sync && sync.code) {
+      navigator.clipboard.writeText(sync.code).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1800);
+      });
+    }
+  }
+
   const existingHome = profile && profile.spots ? profile.spots.filter((s) => !s.isBalcony) : [];
   const existingBalcony = profile && profile.spots ? profile.spots.find((s) => s.isBalcony) : null;
 
@@ -2055,6 +2190,55 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport }) {
         </Btn>
         {!firstRun && <Btn tone="ghost" onClick={onCancel}>Отмена</Btn>}
       </div>
+
+      {syncAvailable && (
+        <div style={{ marginTop: 28, paddingTop: 18, borderTop: `1px solid ${C.line}` }}>
+          <h3 style={{ ...serif, fontWeight: 400, fontSize: 18, margin: "0 0 8px" }}>
+            🔗 Синхронизация между устройствами
+          </h3>
+          {sync && sync.code ? (
+            <div>
+              <p style={{ ...sans, fontSize: 13, color: C.moss, margin: "0 0 10px", lineHeight: 1.5 }}>
+                Сад синхронизируется. Введите этот код на другом устройстве — и там откроется этот же сад
+                (можно и вдвоём: тогда изменения видны обоим). Сохраните код в надёжном месте.
+              </p>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <code style={{ background: "#fffef9", border: `1px solid ${C.line}`, borderRadius: 10, padding: "8px 12px", fontSize: 14, color: C.ink }}>
+                  {sync.code}
+                </code>
+                <Btn small tone="ghost" onClick={copyCode}>{copied ? "✓ Скопирован" : "📋 Скопировать"}</Btn>
+              </div>
+              <div style={{ ...sans, fontSize: 12, color: C.sage, marginTop: 8 }}>
+                последняя синхронизация: {sync.at ? new Date(sync.at).toLocaleString("ru-RU") : "—"}
+              </div>
+              <button onClick={onDisableSync}
+                style={{ ...sans, background: "none", border: "none", color: C.blossom, fontSize: 12, cursor: "pointer", textDecoration: "underline", padding: 0, marginTop: 10 }}>
+                отключить синхронизацию на этом устройстве
+              </button>
+            </div>
+          ) : (
+            <div>
+              <p style={{ ...sans, fontSize: 13, color: C.moss, margin: "0 0 10px", lineHeight: 1.5 }}>
+                Включите, чтобы открывать сад с других устройств по коду — или вести один сад вдвоём.
+              </p>
+              <Btn small onClick={onEnableSync}>Включить и получить код</Btn>
+              <div style={{ marginTop: 14 }}>
+                <div style={{ ...sans, fontSize: 12, color: C.moss, marginBottom: 5 }}>
+                  Уже есть код с другого устройства?
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input style={{ ...inputStyle, flex: 1 }} value={connCode}
+                    onChange={(e) => setConnCode(e.target.value)}
+                    placeholder="sad-xxxx-xxxx-xxxx-xxxx" />
+                  <Btn small tone="water" onClick={() => onConnectSync(connCode)} disabled={!connCode.trim()}>
+                    Подключить
+                  </Btn>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {firstRun && onImport && (
         <div style={{ marginTop: 24 }}>
