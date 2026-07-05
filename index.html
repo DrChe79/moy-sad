@@ -309,6 +309,27 @@ ${context}
   return parseJson(text);
 }
 
+async function plantAsk(history, plant, entries, apartment) {
+  const care = plant.care || {};
+  const recent = (entries || [])
+    .slice(0, 8)
+    .map((e) => `${fmtDate(e.date)}: ${e.text}`)
+    .join("; ");
+  const context = `Ты — тёплый, внимательный садовник-консультант. Отвечай по-русски, дружелюбно и по делу, без лишней воды. Сегодня ${new Date().toLocaleDateString("ru-RU")}. Про квартиру: ${apartment}
+Разговор идёт об одном конкретном растении:
+${plant.name}${plant.nickname ? ` («${plant.nickname}»)` : ""} (${care.latinName || "вид уточняется"}), стоит ${plant.location === "balcony" ? "на балконе" : "дома"}${plant.spot ? `, ${plant.spot}` : ""}.${plant.ownedSince ? ` У хозяев с ${fmtMonth(plant.ownedSince)}.` : ""}
+Паспорт: свет — ${care.light || "?"}; полив — летом раз в ${care.wateringSummer || "?"} дн., зимой раз в ${care.wateringWinter || "?"} дн.; влажность — ${care.humidity || "?"}; подкормка — ${care.feeding || "?"}; грунт — ${care.soil || "?"}; сложность — ${care.difficulty || "?"}.
+Последний полив: ${plant.lastWatered ? daysSince(plant.lastWatered) + " дн. назад" : "не отмечался"}.
+${recent ? "Из дневника: " + recent : "Дневник пока пуст."}
+Отвечай именно про это растение, с учётом его истории, места и условий квартиры.`;
+  const apiMessages = [
+    { role: "user", content: context },
+    { role: "assistant", content: "Поняла, говорим об этом растении. Спрашивайте!" },
+    ...history.slice(-8),
+  ];
+  return askClaude(apiMessages);
+}
+
 /* ─────────────────────────  Мелкие компоненты  ───────────────────────── */
 function LeafMark({ size = 20, color = C.sage }) {
   return (
@@ -1164,6 +1185,25 @@ function PassportGrid({ care }) {
 function PlantView({ plant, apartment, entries, dueInfo, onBack, onWater, onFeed, onDelete, onNote, onDiagnosis, onUpdateCare, showToast }) {
   const [note, setNote] = useState("");
   const [careBusy, setCareBusy] = useState(false);
+  const [qa, setQa] = useState([]);
+  const [qaInput, setQaInput] = useState("");
+  const [qaBusy, setQaBusy] = useState(false);
+
+  async function sendQa() {
+    const q = qaInput.trim();
+    if (!q || qaBusy) return;
+    const next = [...qa, { role: "user", content: q }];
+    setQa(next);
+    setQaInput("");
+    setQaBusy(true);
+    try {
+      const answer = await plantAsk(next, plant, entries, apartment);
+      setQa([...next, { role: "assistant", content: answer || "…" }]);
+    } catch {
+      setQa([...next, { role: "assistant", content: "Не расслышала — спросите ещё раз?" }]);
+    }
+    setQaBusy(false);
+  }
 
   async function refreshCare() {
     setCareBusy(true);
@@ -1287,7 +1327,60 @@ function PlantView({ plant, apartment, entries, dueInfo, onBack, onWater, onFeed
       )}
 
       <div style={{ marginTop: 22 }}>
+        <h3 style={{ ...serif, fontWeight: 400, fontSize: 18, margin: "0 0 10px" }}>
+          Спросить садовника про {plant.nickname || plant.name}
+        </h3>
+        {qa.map((m, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", marginBottom: 8 }}>
+            <div
+              style={{
+                ...sans, maxWidth: "85%", padding: "9px 13px", fontSize: 14, lineHeight: 1.5,
+                whiteSpace: "pre-wrap",
+                borderRadius: m.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+                background: m.role === "user" ? C.moss : "#fffef9",
+                color: m.role === "user" ? C.paper : C.ink,
+                border: m.role === "user" ? "none" : `1px solid ${C.line}`,
+              }}
+            >
+              {m.content}
+              {m.role === "assistant" && (
+                <div style={{ marginTop: 6 }}>
+                  <button
+                    onClick={() => { onNote("Садовник: " + m.content); showToast("Записано в дневник ✒️"); }}
+                    style={{ ...sans, background: "none", border: "none", color: C.sage, fontSize: 12, cursor: "pointer", textDecoration: "underline", padding: 0 }}
+                  >
+                    записать в дневник
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+        {qaBusy && (
+          <div style={{ ...serif, fontStyle: "italic", color: C.sage, fontSize: 13, marginBottom: 8 }}>
+            садовник думает…
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            style={{ ...inputStyle, flex: 1 }}
+            value={qaInput}
+            onChange={(e) => setQaInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && sendQa()}
+            placeholder="Почему скручиваются листья?"
+          />
+          <Btn small onClick={sendQa} disabled={qaBusy || !qaInput.trim()}>→</Btn>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 22 }}>
         <h3 style={{ ...serif, fontWeight: 400, fontSize: 18, margin: "0 0 10px" }}>Дневник</h3>
+        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          <input style={{ ...inputStyle, flex: 1 }} value={note} onChange={(e) => setNote(e.target.value)}
+            placeholder="Новый лист! / переставила к окну…"
+            onKeyDown={(e) => { if (e.key === "Enter" && note.trim()) { onNote(note.trim()); setNote(""); } }} />
+          <Btn small onClick={() => { if (note.trim()) { onNote(note.trim()); setNote(""); } }}>Записать</Btn>
+        </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
           <input style={{ ...inputStyle, flex: 1 }} value={note} onChange={(e) => setNote(e.target.value)}
             placeholder="Новый лист! / переставила к окну…"
