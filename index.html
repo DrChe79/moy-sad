@@ -25,7 +25,6 @@ const PROXY_URL = "https://moy-sad.cherninmaxim.workers.dev";
 const AI_READY = /^https?:\/\//.test(PROXY_URL);
 const { useState, useEffect, useRef, useMemo } = React;
 
-/* Хранилище: localStorage браузера (интерфейс совместим с прежним) */
 const appStorage = {
   async get(key) {
     const v = localStorage.getItem(key);
@@ -738,7 +737,7 @@ function MyGarden() {
       <main style={{ maxWidth: 760, margin: "0 auto", padding: "20px 20px 60px" }}>
         {!AI_READY && (
           <div style={{ background: C.blossomSoft, border: `1px solid ${C.blossom}44`, borderRadius: 14, padding: "10px 14px", marginBottom: 16, ...sans, fontSize: 13, color: C.ink }}>
-            ⚙️ ИИ-функции (паспорта, осмотры, чат) заработают, когда в файле будет указан адрес прокси — см. инструкцию. Каталог и напоминания работают уже сейчас.
+            ⚙️ ИИ-функции появятся после настройки прокси — см. инструкцию. Каталог и напоминания работают уже сейчас.
           </div>
         )}
         {!profile || view === "setup" ? (
@@ -1894,28 +1893,37 @@ function StatsView({ plants, journal, onOpen }) {
 
 /* ─────────────────────────  Профиль квартиры  ───────────────────────── */
 function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport }) {
+  const existingHome = profile && profile.spots ? profile.spots.filter((s) => !s.isBalcony) : [];
+  const existingBalcony = profile && profile.spots ? profile.spots.find((s) => s.isBalcony) : null;
+
   const [spots, setSpots] = useState(
-    profile && profile.spots && profile.spots.length > 0
-      ? profile.spots
+    existingHome.length > 0
+      ? existingHome
       : [{ id: uid(), label: "", orientation: "south", isBalcony: false }]
   );
+  const [hasBalcony, setHasBalcony] = useState(!!existingBalcony);
+  const [balconyLabel, setBalconyLabel] = useState(existingBalcony ? existingBalcony.label : "Балкон");
+  const [balconyOrient, setBalconyOrient] = useState(existingBalcony ? existingBalcony.orientation : "south");
   const [balconyGlazed, setBalconyGlazed] = useState(profile ? profile.balconyGlazed : null);
   const [notes, setNotes] = useState((profile && profile.notes) || "");
-  const hasBalcony = spots.some((s) => s.isBalcony);
-  const canSave = spots.some((s) => s.label.trim());
+
+  const canSave = spots.some((s) => s.label.trim()) || hasBalcony;
 
   function patchSpot(id, patch) {
     setSpots(spots.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   }
 
   function save() {
-    const clean = spots
-      .map((s) => ({ ...s, label: s.label.trim() }))
+    const cleanHome = spots
+      .map((s) => ({ ...s, label: s.label.trim(), isBalcony: false }))
       .filter((s) => s.label);
-    if (clean.length === 0) return;
+    const all = hasBalcony
+      ? [...cleanHome, { id: uid(), label: balconyLabel.trim() || "Балкон", orientation: balconyOrient, isBalcony: true }]
+      : cleanHome;
+    if (all.length === 0) return;
     onSave({
-      spots: clean,
-      balconyGlazed: clean.some((s) => s.isBalcony) ? balconyGlazed : null,
+      spots: all,
+      balconyGlazed: hasBalcony ? balconyGlazed : null,
       notes: notes.trim(),
     });
   }
@@ -1931,7 +1939,7 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport }) {
           : "Изменения коснутся всех будущих советов. Паспорта уже посаженных растений можно освежить кнопкой «обновить» в их карточках."}
       </p>
 
-      <Field label="Места, где живут растения">
+      <Field label="Места в комнатах, где живут растения">
         {spots.map((s) => (
           <div key={s.id} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center", flexWrap: "wrap" }}>
             <input
@@ -1951,9 +1959,6 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport }) {
                 </option>
               ))}
             </select>
-            <Chip active={s.isBalcony} onClick={() => patchSpot(s.id, { isBalcony: !s.isBalcony })}>
-              балкон
-            </Chip>
             {spots.length > 1 && (
               <button
                 onClick={() => setSpots(spots.filter((x) => x.id !== s.id))}
@@ -1973,14 +1978,37 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport }) {
         </button>
       </Field>
 
-      {hasBalcony && (
-        <Field label="Балкон">
-          <div style={{ display: "flex", gap: 8 }}>
-            <Chip active={balconyGlazed === true} onClick={() => setBalconyGlazed(true)}>Застеклён</Chip>
-            <Chip active={balconyGlazed === false} onClick={() => setBalconyGlazed(false)}>Открытый</Chip>
+      <Field label="Балкон">
+        <div style={{ display: "flex", gap: 8 }}>
+          <Chip active={hasBalcony} onClick={() => setHasBalcony(true)}>Есть</Chip>
+          <Chip active={!hasBalcony} onClick={() => setHasBalcony(false)}>Нет</Chip>
+        </div>
+        {hasBalcony && (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <input
+                style={{ ...inputStyle, flex: 2, minWidth: 150 }}
+                value={balconyLabel}
+                onChange={(e) => setBalconyLabel(e.target.value)}
+                placeholder="Балкон / лоджия"
+              />
+              <select
+                style={{ ...inputStyle, flex: 1, minWidth: 150 }}
+                value={balconyOrient}
+                onChange={(e) => setBalconyOrient(e.target.value)}
+              >
+                {ORIENTATIONS.filter((o) => o.v !== "inside").map((o) => (
+                  <option key={o.v} value={o.v}>окна на {o.t}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <Chip active={balconyGlazed === true} onClick={() => setBalconyGlazed(true)}>Застеклён</Chip>
+              <Chip active={balconyGlazed === false} onClick={() => setBalconyGlazed(false)}>Открытый</Chip>
+            </div>
           </div>
-        </Field>
-      )}
+        )}
+      </Field>
 
       <Field label="Ещё о квартире (по желанию, но очень помогает советам)">
         <textarea
