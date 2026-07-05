@@ -1112,6 +1112,7 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
   const [care, setCare] = useState(null);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef(null);
+  const camRef = useRef(null);
 
   async function handlePhoto(file) {
     try {
@@ -1217,10 +1218,13 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
         )}
       </div>
       <Field label="Фото">
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           {photo && <img src={photo} alt="" style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 12 }} />}
+          <Btn small tone="ghost" onClick={() => camRef.current && camRef.current.click()}>
+            📷 {photo ? "Переснять" : "Сфотографировать"}
+          </Btn>
           <Btn small tone="ghost" onClick={() => fileRef.current && fileRef.current.click()}>
-            {photo ? "Заменить фото" : "Добавить фото"}
+            🖼 Из галереи
           </Btn>
           {photo && (
             <Btn small tone="water" onClick={identify} disabled={idBusy}>
@@ -1228,6 +1232,8 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
             </Btn>
           )}
           <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
+            onChange={(e) => e.target.files[0] && handlePhoto(e.target.files[0])} />
+          <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }}
             onChange={(e) => e.target.files[0] && handlePhoto(e.target.files[0])} />
         </div>
         {idNote && (
@@ -1299,6 +1305,11 @@ function PlantView({ plant, apartment, spots, onMove, entries, dueInfo, onBack, 
   const [eOwned, setEOwned] = useState("");
   const [ePhoto, setEPhoto] = useState(null);
   const editFileRef = useRef(null);
+  const editCamRef = useRef(null);
+
+  async function handleEditPhoto(f) {
+    try { setEPhoto(await compressImage(f, 480, 0.72)); } catch { showToast("Не получилось обработать фото"); }
+  }
 
   function startEdit() {
     setEName(plant.name);
@@ -1352,9 +1363,12 @@ function PlantView({ plant, apartment, spots, onMove, entries, dueInfo, onBack, 
   }
   const [diag, setDiag] = useState(null);
   const [diagBusy, setDiagBusy] = useState(false);
+  const [diagSrc, setDiagSrc] = useState(false);
   const diagRef = useRef(null);
+  const diagCamRef = useRef(null);
 
   async function handleDiagPhoto(file) {
+    setDiagSrc(false);
     setDiagBusy(true);
     setDiag(null);
     try {
@@ -1432,16 +1446,12 @@ function PlantView({ plant, apartment, spots, onMove, entries, dueInfo, onBack, 
                 {(ePhoto || plant.photo) && (
                   <img src={ePhoto || plant.photo} alt="" style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 10 }} />
                 )}
-                <Btn small tone="ghost" onClick={() => editFileRef.current && editFileRef.current.click()}>
-                  Заменить фото
-                </Btn>
+                <Btn small tone="ghost" onClick={() => editCamRef.current && editCamRef.current.click()}>📷 Снять</Btn>
+                <Btn small tone="ghost" onClick={() => editFileRef.current && editFileRef.current.click()}>🖼 Галерея</Btn>
                 <input ref={editFileRef} type="file" accept="image/*" style={{ display: "none" }}
-                  onChange={async (e) => {
-                    const f = e.target.files[0];
-                    if (!f) return;
-                    try { setEPhoto(await compressImage(f, 480, 0.72)); } catch { showToast("Не получилось обработать фото"); }
-                    e.target.value = "";
-                  }} />
+                  onChange={(e) => { const f = e.target.files[0]; if (f) handleEditPhoto(f); e.target.value = ""; }} />
+                <input ref={editCamRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }}
+                  onChange={(e) => { const f = e.target.files[0]; if (f) handleEditPhoto(f); e.target.value = ""; }} />
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <Btn small onClick={saveEdit}>Сохранить</Btn>
@@ -1452,12 +1462,20 @@ function PlantView({ plant, apartment, spots, onMove, entries, dueInfo, onBack, 
           <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
             <Btn small tone="water" onClick={onWater}>💧 Полить</Btn>
             <Btn small tone="moss" onClick={onFeed}>🌿 Подкормить</Btn>
-            <Btn small tone="ghost" onClick={() => diagRef.current && diagRef.current.click()} disabled={diagBusy}>
+            <Btn small tone="ghost" onClick={() => setDiagSrc(!diagSrc)} disabled={diagBusy}>
               {diagBusy ? "Осматриваю…" : "🔍 Осмотр по фото"}
             </Btn>
             <input ref={diagRef} type="file" accept="image/*" style={{ display: "none" }}
               onChange={(e) => e.target.files[0] && handleDiagPhoto(e.target.files[0])} />
+            <input ref={diagCamRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }}
+              onChange={(e) => e.target.files[0] && handleDiagPhoto(e.target.files[0])} />
           </div>
+          {diagSrc && !diagBusy && (
+            <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+              <Chip onClick={() => diagCamRef.current && diagCamRef.current.click()}>📷 Сфотографировать</Chip>
+              <Chip onClick={() => diagRef.current && diagRef.current.click()}>🖼 Из галереи</Chip>
+            </div>
+          )}
           <div style={{ ...sans, fontSize: 13, color: dueInfo.waterDue ? C.blossom : C.sage, marginTop: 8 }}>
             {plant.lastWatered
               ? `последний полив ${daysSince(plant.lastWatered)} дн. назад`
@@ -1598,6 +1616,14 @@ function ChatView({ plants, journal, apartment }) {
   const [busy, setBusy] = useState(false);
   const [pendingImage, setPendingImage] = useState(null);
   const fileRef = useRef(null);
+  const camRef = useRef(null);
+
+  async function pickChatImage(e) {
+    const f = e.target.files[0];
+    if (!f) return;
+    try { setPendingImage(await compressImage(f, 900, 0.8)); } catch { /* пропустим */ }
+    e.target.value = "";
+  }
   const bottomRef = useRef(null);
 
   useEffect(() => {
@@ -1701,11 +1727,18 @@ function ChatView({ plants, journal, apartment }) {
         )}
         <div style={{ display: "flex", gap: 8 }}>
           <button
-            onClick={() => fileRef.current && fileRef.current.click()}
-            title="Приложить фото растения"
+            onClick={() => camRef.current && camRef.current.click()}
+            title="Сфотографировать растение"
             style={{ ...sans, width: 46, borderRadius: 12, border: `1px solid ${C.line}`, background: "#fffef9", color: C.moss, fontSize: 18, cursor: "pointer" }}
           >
             📷
+          </button>
+          <button
+            onClick={() => fileRef.current && fileRef.current.click()}
+            title="Фото из галереи"
+            style={{ ...sans, width: 46, borderRadius: 12, border: `1px solid ${C.line}`, background: "#fffef9", color: C.moss, fontSize: 18, cursor: "pointer" }}
+          >
+            🖼
           </button>
           <input
             style={{ ...inputStyle, flex: 1 }}
@@ -1717,12 +1750,9 @@ function ChatView({ plants, journal, apartment }) {
           <Btn onClick={send} disabled={busy || (!input.trim() && !pendingImage)}>→</Btn>
         </div>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
-          onChange={async (e) => {
-            const f = e.target.files[0];
-            if (!f) return;
-            try { setPendingImage(await compressImage(f, 900, 0.8)); } catch { /* пропустим */ }
-            e.target.value = "";
-          }} />
+          onChange={pickChatImage} />
+        <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }}
+          onChange={pickChatImage} />
       </div>
     </div>
   );
