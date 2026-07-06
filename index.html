@@ -1213,19 +1213,32 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
   const [placeBusy, setPlaceBusy] = useState(false);
   const [idBusy, setIdBusy] = useState(false);
   const [idNote, setIdNote] = useState("");
+  const [photoSrcChoose, setPhotoSrcChoose] = useState(false);
+  const [prevName, setPrevName] = useState(null);
 
-  async function identify() {
-    if (!photo) return;
+  async function identifyFrom(dataUrl) {
+    const source = dataUrl || photo;
+    if (!source) return;
+    const nameAtCall = name;
     setIdBusy(true);
     setIdNote("");
     try {
-      const r = await identifyPlant(photo.split(",")[1]);
-      if (r.name) setName(r.name);
+      const r = await identifyPlant(source.split(",")[1]);
+      if (r.name) {
+        setPrevName((prev) => (prev === null ? nameAtCall : prev));
+        setName(r.name);
+      }
       setIdNote([r.latinName, r.note].filter(Boolean).join(" — "));
     } catch {
       showToast("Не удалось определить — попробуйте другое фото");
     }
     setIdBusy(false);
+  }
+
+  function cancelIdentify() {
+    if (prevName !== null) setName(prevName);
+    setPrevName(null);
+    setIdNote("");
   }
   const [nickname, setNickname] = useState("");
   const [ownedSince, setOwnedSince] = useState("");
@@ -1238,9 +1251,11 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
   const camRef = useRef(null);
 
   async function handlePhoto(file) {
+    setPhotoSrcChoose(false);
     try {
       const thumb = await compressImage(file, 480, 0.72);
       setPhoto(thumb);
+      if (!name.trim()) identifyFrom(thumb);
     } catch {
       showToast("Не получилось обработать фото");
     }
@@ -1277,6 +1292,49 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
   return (
     <div style={{ maxWidth: 480 }}>
       <h2 style={{ ...serif, fontWeight: 400, fontSize: 22, margin: "4px 0 18px" }}>Новый житель сада</h2>
+
+      <Field label="Можно начать с фото — вид определится сам">
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {photo && <img src={photo} alt="" style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 12 }} />}
+          <Btn small tone={photo ? "ghost" : "water"} onClick={() => setPhotoSrcChoose(!photoSrcChoose)}>
+            📷 {photo ? "Заменить фото" : "Добавить фото"}
+          </Btn>
+          {photo && !idBusy && (
+            <Btn small tone="ghost" onClick={() => identifyFrom(photo)}>🔍 Определить вид</Btn>
+          )}
+        </div>
+        {photoSrcChoose && (
+          <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+            <Chip onClick={() => camRef.current && camRef.current.click()}>📷 Сфотографировать</Chip>
+            <Chip onClick={() => fileRef.current && fileRef.current.click()}>🖼 Из галереи</Chip>
+          </div>
+        )}
+        {idBusy && (
+          <div style={{ ...serif, fontStyle: "italic", fontSize: 13, color: C.sage, marginTop: 6 }}>
+            определяю вид…
+          </div>
+        )}
+        {idNote && !idBusy && (
+          <div style={{ ...serif, fontStyle: "italic", fontSize: 13, color: C.moss, marginTop: 6 }}>
+            {idNote}
+            {" · "}
+            <button onClick={cancelIdentify}
+              style={{ ...sans, background: "none", border: "none", color: C.blossom, fontSize: 12, cursor: "pointer", textDecoration: "underline", padding: 0, fontStyle: "normal" }}>
+              не то, отменить
+            </button>
+          </div>
+        )}
+        <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
+          onChange={(e) => { if (e.target.files[0]) handlePhoto(e.target.files[0]); e.target.value = ""; }} />
+        <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }}
+          onChange={(e) => { if (e.target.files[0]) handlePhoto(e.target.files[0]); e.target.value = ""; }} />
+      </Field>
+
+      {!photo && (
+        <div style={{ ...sans, fontSize: 12, color: C.sage, textAlign: "center", margin: "2px 0 14px" }}>
+          — или начните с названия —
+        </div>
+      )}
 
       <Field label="Название растения">
         <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Монстера деликатесная" />
@@ -1340,32 +1398,6 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
           </div>
         )}
       </div>
-      <Field label="Фото">
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          {photo && <img src={photo} alt="" style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 12 }} />}
-          <Btn small tone="ghost" onClick={() => camRef.current && camRef.current.click()}>
-            📷 {photo ? "Переснять" : "Сфотографировать"}
-          </Btn>
-          <Btn small tone="ghost" onClick={() => fileRef.current && fileRef.current.click()}>
-            🖼 Из галереи
-          </Btn>
-          {photo && (
-            <Btn small tone="water" onClick={identify} disabled={idBusy}>
-              {idBusy ? "Определяю…" : "🔍 Определить вид"}
-            </Btn>
-          )}
-          <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
-            onChange={(e) => e.target.files[0] && handlePhoto(e.target.files[0])} />
-          <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }}
-            onChange={(e) => e.target.files[0] && handlePhoto(e.target.files[0])} />
-        </div>
-        {idNote && (
-          <div style={{ ...serif, fontStyle: "italic", fontSize: 13, color: C.moss, marginTop: 6 }}>
-            {idNote}
-          </div>
-        )}
-      </Field>
-
       {!care ? (
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <Btn onClick={makePassport} disabled={busy}>
