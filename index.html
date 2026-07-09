@@ -535,6 +535,7 @@ function MyGarden() {
   const [mood, setMood] = useState("");
   const [sync, setSync] = useState({ code: null, at: null });
   const syncTimer = useRef(null);
+  const sizeWarned = useRef(false);
 
   /* ── загрузка / сохранение ── */
   useEffect(() => {
@@ -619,6 +620,10 @@ function MyGarden() {
       profile: nextProfile,
       updatedAt: Date.now(),
     });
+    if (payload.length > 4_500_000 && !sizeWarned.current) {
+      sizeWarned.current = true;
+      showToast("Хранилище почти заполнено — стоит удалить старые фото из галерей 📸");
+    }
     try {
       await appStorage.set("garden:data", payload);
     } catch (e) {
@@ -984,6 +989,25 @@ function MyGarden() {
               update(np, journal);
               showToast("Карточка обновлена ✒️");
             }}
+            onGalleryAdd={(src) => {
+              const np = plants.map((x) =>
+                x.id === openPlant.id
+                  ? { ...x, gallery: [{ id: uid(), date: now(), src }, ...(x.gallery || [])] }
+                  : x
+              );
+              const nj = addJournal(openPlant.id, "event", "Новое фото в галерее 📸");
+              update(np, nj);
+              showToast("Фото добавлено в галерею 📸");
+            }}
+            onGalleryDelete={(gid) => {
+              const np = plants.map((x) =>
+                x.id === openPlant.id
+                  ? { ...x, gallery: (x.gallery || []).filter((g) => g.id !== gid) }
+                  : x
+              );
+              update(np, journal);
+              showToast("Фото удалено");
+            }}
             showToast={showToast}
           />
         )}
@@ -1282,6 +1306,7 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
       location,
       spot: spot.trim(),
       photo,
+      gallery: photo ? [{ id: uid(), date: now(), src: photo }] : [],
       care,
       addedAt: now(),
       lastWatered: null,
@@ -1451,9 +1476,23 @@ function PassportGrid({ care }) {
 }
 
 /* ─────────────────────────  Карточка растения  ───────────────────────── */
-function PlantView({ plant, apartment, spots, onMove, entries, dueInfo, onBack, onWater, onFeed, onDelete, onNote, onDiagnosis, onUpdateCare, onEdit, showToast }) {
+function PlantView({ plant, apartment, spots, onMove, entries, dueInfo, onBack, onWater, onFeed, onDelete, onNote, onDiagnosis, onUpdateCare, onEdit, onGalleryAdd, onGalleryDelete, showToast }) {
   const [note, setNote] = useState("");
   const [moving, setMoving] = useState(false);
+  const [galSrc, setGalSrc] = useState(false);
+  const [galView, setGalView] = useState(null);
+  const galFileRef = useRef(null);
+  const galCamRef = useRef(null);
+
+  async function handleGalleryPhoto(f) {
+    setGalSrc(false);
+    try {
+      const src = await compressImage(f, 560, 0.7);
+      onGalleryAdd(src);
+    } catch {
+      showToast("Не получилось обработать фото");
+    }
+  }
   const [editing, setEditing] = useState(false);
   const [eName, setEName] = useState("");
   const [eNickname, setENickname] = useState("");
@@ -1689,6 +1728,42 @@ function PlantView({ plant, apartment, spots, onMove, entries, dueInfo, onBack, 
       )}
 
       <div style={{ marginTop: 22 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+          <h3 style={{ ...serif, fontWeight: 400, fontSize: 18, margin: 0, flex: 1 }}>
+            📸 Галерея{(plant.gallery || []).length > 0 ? ` · ${(plant.gallery || []).length}` : ""}
+          </h3>
+          <Btn small tone="ghost" onClick={() => setGalSrc(!galSrc)}>+ Добавить фото</Btn>
+        </div>
+        {galSrc && (
+          <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+            <Chip onClick={() => galCamRef.current && galCamRef.current.click()}>📷 Сфотографировать</Chip>
+            <Chip onClick={() => galFileRef.current && galFileRef.current.click()}>🖼 Из галереи</Chip>
+          </div>
+        )}
+        <input ref={galFileRef} type="file" accept="image/*" style={{ display: "none" }}
+          onChange={(e) => { if (e.target.files[0]) handleGalleryPhoto(e.target.files[0]); e.target.value = ""; }} />
+        <input ref={galCamRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }}
+          onChange={(e) => { if (e.target.files[0]) handleGalleryPhoto(e.target.files[0]); e.target.value = ""; }} />
+        {(plant.gallery || []).length === 0 ? (
+          <p style={{ ...sans, fontSize: 13, color: C.sage, margin: 0 }}>
+            Добавляйте снимки время от времени — получится история роста.
+          </p>
+        ) : (
+          <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 6 }}>
+            {(plant.gallery || []).map((g) => (
+              <button key={g.id} onClick={() => setGalView(g)}
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", flexShrink: 0 }}>
+                <img src={g.src} alt="" style={{ width: 88, height: 88, objectFit: "cover", borderRadius: 12, display: "block" }} />
+                <div style={{ ...sans, fontSize: 11, color: C.sage, marginTop: 3, textAlign: "center" }}>
+                  {fmtDate(g.date)}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 22 }}>
         <h3 style={{ ...serif, fontWeight: 400, fontSize: 18, margin: "0 0 10px" }}>
           Спросить садовника про {plant.nickname || plant.name}
         </h3>
@@ -1760,6 +1835,30 @@ function PlantView({ plant, apartment, spots, onMove, entries, dueInfo, onBack, 
           убрать растение из сада
         </button>
       </div>
+
+      {galView && (
+        <div onClick={() => setGalView(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(46,68,51,0.88)", zIndex: 60, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <img src={galView.src} alt="" onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "94%", maxHeight: "68vh", borderRadius: 14, boxShadow: "0 8px 30px rgba(0,0,0,0.35)" }} />
+          <div style={{ ...serif, fontStyle: "italic", color: C.paper, fontSize: 15, marginTop: 12 }}>
+            {plant.nickname || plant.name} · {fmtDate(galView.date)}
+          </div>
+          <div style={{ display: "flex", gap: 10, marginTop: 14 }} onClick={(e) => e.stopPropagation()}>
+            <Btn small tone="water" onClick={() => { onEdit({ photo: galView.src }); setGalView(null); }}>
+              Сделать главным фото
+            </Btn>
+            <Btn small tone="blossom" onClick={() => {
+              if (window.confirm("Удалить это фото из галереи?")) { onGalleryDelete(galView.id); setGalView(null); }
+            }}>
+              Удалить
+            </Btn>
+          </div>
+          <div style={{ ...sans, color: C.sageSoft, fontSize: 12, marginTop: 16 }}>
+            нажмите вне фото, чтобы закрыть
+          </div>
+        </div>
+      )}
     </div>
   );
 }
