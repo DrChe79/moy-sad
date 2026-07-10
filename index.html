@@ -1628,6 +1628,7 @@ function PlantView({ plant, apartment, invText, inventory, spots, onMove, entrie
     }
   }
 
+  const [invOpen, setInvOpen] = useState(false);
   const invMatches = (inventory || [])
     .map((i) => {
       const m =
@@ -1873,17 +1874,27 @@ function PlantView({ plant, apartment, invText, inventory, spots, onMove, entrie
       )}
 
       {invMatches.length > 0 && (
-        <div style={{ marginTop: 18, background: C.waterSoft + "99", border: `1px solid ${C.line}`, borderRadius: 16, padding: 16 }}>
-          <div style={{ ...serif, fontStyle: "italic", color: C.moss, marginBottom: 8 }}>
-            🧰 Из хозяйства подходит
-          </div>
-          {invMatches.map(({ item, how }) => (
-            <div key={item.id} style={{ ...sans, fontSize: 14, padding: "4px 0", color: C.ink, lineHeight: 1.45 }}>
-              <b style={{ ...serif, fontWeight: 400 }}>{item.name}</b>
-              {item.note ? <span style={{ color: C.moss }}> ({item.note})</span> : null}
-              {" — "}{how}
+        <div style={{ marginTop: 18, background: C.waterSoft + "99", border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden" }}>
+          <button
+            onClick={() => setInvOpen(!invOpen)}
+            style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: "13px 16px", cursor: "pointer", display: "flex", alignItems: "baseline", gap: 8 }}
+          >
+            <span style={{ ...serif, fontStyle: "italic", color: C.moss, fontSize: 15, flex: 1 }}>
+              🧰 Из хозяйства подходит · {invMatches.length}
+            </span>
+            <span style={{ color: C.sage, fontSize: 11 }}>{invOpen ? "▲" : "▼"}</span>
+          </button>
+          {invOpen && (
+            <div style={{ padding: "0 16px 14px" }}>
+              {invMatches.map(({ item, how }) => (
+                <div key={item.id} style={{ ...sans, fontSize: 14, padding: "4px 0", color: C.ink, lineHeight: 1.45 }}>
+                  <b style={{ ...serif, fontWeight: 400 }}>{item.name}</b>
+                  {item.note ? <span style={{ color: C.moss }}> ({item.note})</span> : null}
+                  {" — "}{how}
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
 
