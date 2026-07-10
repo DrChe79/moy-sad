@@ -959,11 +959,8 @@ function MyGarden() {
             <Chip active={view === "wishlist"} onClick={() => setView("wishlist")}>
               🌷 Вишлист{wishlist.length > 0 ? ` · ${wishlist.length}` : ""}
             </Chip>
-            <Chip active={view === "needs"} onClick={() => setView("needs")}>
-              🧺 Нужное{needs.length > 0 ? ` · ${needs.length}` : ""}
-            </Chip>
-            <Chip active={view === "inventory"} onClick={() => setView("inventory")}>
-              🧰 Инвентарь{inventory.length > 0 ? ` · ${inventory.length}` : ""}
+            <Chip active={view === "supplies"} onClick={() => setView("supplies")}>
+              🧺 Хозяйство{needs.length > 0 ? ` · ${needs.length}` : ""}
             </Chip>
             <Chip active={view === "stats"} onClick={() => setView("stats")}>📊 Статистика</Chip>
             <Chip active={view === "setup"} onClick={() => setView("setup")}>🏡 Квартира</Chip>
@@ -1065,15 +1062,12 @@ function MyGarden() {
           <StatsView plants={plants} journal={journal}
             onOpen={(id) => { setOpenId(id); setView("plant"); }} />
         )}
-        {view === "needs" && (
-          <NeedsView needs={needs} plants={plants} journal={journal} apartment={apartment} invText={invText}
-            onAdd={(t) => addNeed(t, null)} onBuy={buyNeed} onRemove={removeNeed}
-            onOpenPlant={(id) => { setOpenId(id); setView("plant"); }}
-            showToast={showToast} />
-        )}
-        {view === "inventory" && (
-          <InventoryView inventory={inventory} plants={plants} journal={journal} apartment={apartment}
-            onAdd={addInvItem} onPatch={patchInvItem} onRemove={removeInvItem}
+        {view === "supplies" && (
+          <SuppliesView
+            needs={needs} inventory={inventory} plants={plants} journal={journal}
+            apartment={apartment} invText={invText}
+            onAddNeed={(t) => addNeed(t, null)} onBuy={buyNeed} onRemoveNeed={removeNeed}
+            onAddInv={addInvItem} onPatchInv={patchInvItem} onRemoveInv={removeInvItem}
             onOpenPlant={(id) => { setOpenId(id); setView("plant"); }}
             showToast={showToast} />
         )}
@@ -1971,7 +1965,7 @@ function PlantView({ plant, apartment, invText, spots, onMove, entries, dueInfo,
           <Btn small onClick={() => { if (needText.trim()) { onAddNeed(needText); setNeedText(""); } }}>В список</Btn>
         </div>
         <div style={{ ...sans, fontSize: 12, color: C.sage, marginTop: 6 }}>
-          всё нужное собирается в общий список — вкладка 🧺 Нужное
+          всё нужное собирается в общий список — вкладка 🧺 Хозяйство
         </div>
       </div>
 
@@ -2264,6 +2258,32 @@ function WishlistView({ wishlist, plants, journal, apartment, onAdd, onRemove, o
   );
 }
 
+/* ─────────────────────────  Хозяйство: Нужное + Инвентарь  ───────────────────────── */
+function SuppliesView({ needs, inventory, plants, journal, apartment, invText, onAddNeed, onBuy, onRemoveNeed, onAddInv, onPatchInv, onRemoveInv, onOpenPlant, showToast }) {
+  const [tab, setTab] = useState(needs.length > 0 ? "needs" : "inv");
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+        <Chip active={tab === "needs"} onClick={() => setTab("needs")}>
+          🧺 Нужное{needs.length > 0 ? ` · ${needs.length}` : ""}
+        </Chip>
+        <Chip active={tab === "inv"} onClick={() => setTab("inv")}>
+          🧰 Инвентарь{inventory.length > 0 ? ` · ${inventory.length}` : ""}
+        </Chip>
+      </div>
+      {tab === "needs" ? (
+        <NeedsView needs={needs} plants={plants} journal={journal} apartment={apartment} invText={invText}
+          onAdd={onAddNeed} onBuy={(n) => { onBuy(n); }} onRemove={onRemoveNeed}
+          onOpenPlant={onOpenPlant} showToast={showToast} />
+      ) : (
+        <InventoryView inventory={inventory} plants={plants} journal={journal} apartment={apartment}
+          onAdd={onAddInv} onPatch={onPatchInv} onRemove={onRemoveInv}
+          onOpenPlant={onOpenPlant} showToast={showToast} />
+      )}
+    </div>
+  );
+}
+
 /* ─────────────────────────  Нужное (список покупок)  ───────────────────────── */
 function NeedsView({ needs, plants, journal, apartment, invText, onAdd, onBuy, onRemove, onOpenPlant, showToast }) {
   const [text, setText] = useState("");
@@ -2308,7 +2328,7 @@ function NeedsView({ needs, plants, journal, apartment, invText, onAdd, onBuy, o
     <div style={{ maxWidth: 600 }}>
       <h2 style={{ ...serif, fontWeight: 400, fontSize: 22, margin: "4px 0 6px" }}>Нужное для сада</h2>
       <p style={{ ...sans, fontSize: 14, color: C.moss, margin: "0 0 16px" }}>
-        Сюда стекается всё «купить» — из карточек растений и общесадовое. Отметка ✓ уходит в дневник растения.
+        Сюда стекается всё «купить» — из карточек растений и общесадовое. Отметка ✓ уходит в дневник растения, а купленное — на соседнюю полку «Инвентарь».
       </p>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
