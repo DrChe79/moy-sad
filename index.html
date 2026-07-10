@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "10.07-23:14";
+const APP_VERSION = "10.07-23:22";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -121,6 +121,7 @@ function compressImage(file, maxSide, quality) {
 
 /* ─────────────────────────  Синхронизация между устройствами  ───────────────────────── */
 const SYNC_BASE = PROXY_URL;
+const WALLPAPER = "fon.jpg"; // фоновое фото рядом с index.html; если файла нет — фон просто не показывается
 
 function genSyncCode() {
   const abc = "abcdefghjkmnpqrstuvwxyz23456789";
@@ -932,8 +933,17 @@ function MyGarden() {
 
   return (
     <div style={{ minHeight: "100vh", background: C.paper, color: C.ink }}>
+      <div
+        aria-hidden="true"
+        style={{
+          position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
+          backgroundImage: `url(${WALLPAPER})`,
+          backgroundSize: "cover", backgroundPosition: "center 28%",
+          opacity: 0.13,
+        }}
+      />
       {/* ── шапка ── */}
-      <header style={{ position: "relative", padding: "28px 20px 18px", borderBottom: `1px solid ${C.line}` }}>
+      <header style={{ position: "relative", zIndex: 1, padding: "28px 20px 18px", borderBottom: `1px solid ${C.line}` }}>
         <Watercolor />
         <div style={{ position: "relative", maxWidth: 760, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
@@ -971,7 +981,7 @@ function MyGarden() {
         </div>
       </header>
 
-      <main style={{ maxWidth: 760, margin: "0 auto", padding: "20px 20px 60px" }}>
+      <main style={{ position: "relative", zIndex: 1, maxWidth: 760, margin: "0 auto", padding: "20px 20px 60px" }}>
         {!AI_READY && (
           <div style={{ background: C.blossomSoft, border: `1px solid ${C.blossom}44`, borderRadius: 14, padding: "10px 14px", marginBottom: 16, ...sans, fontSize: 13, color: C.ink }}>
             ⚙️ ИИ-функции появятся после настройки прокси — см. инструкцию. Каталог и напоминания работают уже сейчас.
