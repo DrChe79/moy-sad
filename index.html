@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "10.07-23:38";
+const APP_VERSION = "10.07-23:45";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -1197,7 +1197,7 @@ function MyGarden() {
               <div onClick={(e) => e.stopPropagation()} className="reveal"
                 style={{ position: "absolute", left: 12, right: 12, bottom: 86, maxWidth: 520, margin: "0 auto", background: "#fffef9", border: `1px solid ${C.line}`, borderRadius: 18, padding: 8, boxShadow: "0 10px 30px rgba(46,68,51,0.18)" }}>
                 {[
-                  { v: "supplies", t: `🧺 Хозяйство${needs.length ? " · " + needs.length : ""}` },
+                  { v: "chat", t: "💬 Садовник" },
                   { v: "wishlist", t: `🌷 Вишлист${wishlist.length ? " · " + wishlist.length : ""}` },
                   { v: "stats", t: "📊 Статистика" },
                   { v: "setup", t: "🏡 Квартира" },
@@ -1220,9 +1220,10 @@ function MyGarden() {
                 style={{ width: 52, height: 52, borderRadius: "50%", background: view === "add" ? C.ink : C.moss, color: C.paper, border: "none", fontSize: 27, lineHeight: 1, margin: "0 4px", transform: "translateY(-12px)", boxShadow: "0 6px 16px rgba(46,68,51,0.28)", cursor: "pointer", flexShrink: 0 }}>
                 +
               </button>
-              <NavTab icon="💬" label="Садовник" active={view === "chat"} onClick={() => setView("chat")} />
-              <NavTab icon="⋯" label="Ещё" badge={needs.length}
-                active={moreOpen || ["supplies", "wishlist", "stats", "setup"].includes(view)}
+              <NavTab icon="🧺" label="Хозяйство" badge={needs.length}
+                active={view === "supplies"} onClick={() => setView("supplies")} />
+              <NavTab icon="⋯" label="Ещё"
+                active={moreOpen || ["chat", "wishlist", "stats", "setup"].includes(view)}
                 onClick={() => setMoreOpen(!moreOpen)} />
             </div>
           </nav>
