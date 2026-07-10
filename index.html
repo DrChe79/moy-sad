@@ -1080,6 +1080,7 @@ function MyGarden() {
             plant={openPlant}
             apartment={apartment}
             invText={invText}
+            inventory={inventory}
             spots={spotChoices}
             onMove={(loc, spotStr) => {
               const np = plants.map((x) => (x.id === openPlant.id ? { ...x, location: loc, spot: spotStr } : x));
@@ -1608,7 +1609,7 @@ function PassportGrid({ care }) {
 }
 
 /* ─────────────────────────  Карточка растения  ───────────────────────── */
-function PlantView({ plant, apartment, invText, spots, onMove, entries, dueInfo, onBack, onWater, onFeed, onDelete, onNote, onDeleteEntry, onDiagnosis, onUpdateCare, onEdit, onGalleryAdd, onGalleryDelete, needs, onAddNeed, onBuyNeed, onRemoveNeed, showToast }) {
+function PlantView({ plant, apartment, invText, inventory, spots, onMove, entries, dueInfo, onBack, onWater, onFeed, onDelete, onNote, onDeleteEntry, onDiagnosis, onUpdateCare, onEdit, onGalleryAdd, onGalleryDelete, needs, onAddNeed, onBuyNeed, onRemoveNeed, showToast }) {
   const [note, setNote] = useState("");
   const [needText, setNeedText] = useState("");
   const [moving, setMoving] = useState(false);
@@ -1626,6 +1627,17 @@ function PlantView({ plant, apartment, invText, spots, onMove, entries, dueInfo,
       showToast("Не получилось обработать фото");
     }
   }
+
+  const invMatches = (inventory || [])
+    .map((i) => {
+      const m =
+        i.ai &&
+        (i.ai.matches || []).find(
+          (x) => x.plant === (plant.nickname || plant.name) || x.plant === plant.name
+        );
+      return m ? { item: i, how: m.how } : null;
+    })
+    .filter(Boolean);
   const [editing, setEditing] = useState(false);
   const [eName, setEName] = useState("");
   const [eNickname, setENickname] = useState("");
@@ -1857,6 +1869,21 @@ function PlantView({ plant, apartment, invText, spots, onMove, entries, dueInfo,
               «{plant.care.tip}»
             </p>
           )}
+        </div>
+      )}
+
+      {invMatches.length > 0 && (
+        <div style={{ marginTop: 18, background: C.waterSoft + "99", border: `1px solid ${C.line}`, borderRadius: 16, padding: 16 }}>
+          <div style={{ ...serif, fontStyle: "italic", color: C.moss, marginBottom: 8 }}>
+            🧰 Из хозяйства подходит
+          </div>
+          {invMatches.map(({ item, how }) => (
+            <div key={item.id} style={{ ...sans, fontSize: 14, padding: "4px 0", color: C.ink, lineHeight: 1.45 }}>
+              <b style={{ ...serif, fontWeight: 400 }}>{item.name}</b>
+              {item.note ? <span style={{ color: C.moss }}> ({item.note})</span> : null}
+              {" — "}{how}
+            </div>
+          ))}
         </div>
       )}
 
