@@ -58,6 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
+const APP_VERSION = "10.07-22:59";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -1266,6 +1267,7 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
         <button onClick={onImportClick} style={{ ...sans, background: "none", border: "none", color: C.sage, fontSize: 13, cursor: "pointer", textDecoration: "underline" }}>
           восстановить из копии
         </button>
+        <span style={{ ...sans, fontSize: 12, color: C.sage, opacity: 0.7 }}>v{APP_VERSION}</span>
       </div>
     </div>
   );
@@ -2433,12 +2435,14 @@ function InventoryView({ inventory, plants, journal, apartment, onAdd, onPatch, 
   const [busyId, setBusyId] = useState(null);
   const [editId, setEditId] = useState(null);
   const [openId, setOpenId] = useState(null);
+  const [openCats, setOpenCats] = useState({});
   const [eName, setEName] = useState("");
   const [eNote, setENote] = useState("");
 
   function add() {
     if (!name.trim()) return;
     onAdd(name, cat, note);
+    setOpenCats((prev) => ({ ...prev, [cat]: true }));
     setName("");
     setNote("");
   }
@@ -2495,9 +2499,20 @@ function InventoryView({ inventory, plants, journal, apartment, onAdd, onPatch, 
           </p>
         </div>
       ) : (
-        groups.map(({ c, items }) => (
-          <div key={c.v} style={{ marginBottom: 20 }}>
-            <h3 style={{ ...serif, fontWeight: 400, fontSize: 17, margin: "0 0 8px" }}>{c.t}</h3>
+        groups.map(({ c, items }) => {
+          const catOpen = !!openCats[c.v];
+          return (
+          <div key={c.v} style={{ marginBottom: 10 }}>
+            <button
+              onClick={() => setOpenCats({ ...openCats, [c.v]: !catOpen })}
+              style={{ width: "100%", textAlign: "left", background: C.sageSoft + "66", border: `1px solid ${C.line}`, borderRadius: 14, padding: "11px 14px", cursor: "pointer", display: "flex", alignItems: "baseline", gap: 8 }}
+            >
+              <span style={{ ...serif, fontSize: 17, color: C.ink, flex: 1 }}>{c.t}</span>
+              <span style={{ ...sans, fontSize: 12, color: C.moss }}>{items.length}</span>
+              <span style={{ color: C.sage, fontSize: 11 }}>{catOpen ? "▲" : "▼"}</span>
+            </button>
+            {catOpen && (
+            <div style={{ marginTop: 8 }}>
             {items.map((i) => {
               const open = openId === i.id;
               return (
@@ -2586,8 +2601,11 @@ function InventoryView({ inventory, plants, journal, apartment, onAdd, onPatch, 
               </div>
               );
             })}
+            </div>
+            )}
           </div>
-        ))
+          );
+        })
       )}
     </div>
   );
