@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "10.07-22:59";
+const APP_VERSION = "10.07-23:14";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -2639,6 +2639,44 @@ function StatsView({ plants, journal, onOpen }) {
   const waters30 = allEntries.filter((e) => e.type === "water" && daysSince(e.date) <= 30).length;
   const recent = [...allEntries].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 12);
 
+  const feeds30 = allEntries.filter((e) => e.type === "feed" && daysSince(e.date) <= 30).length;
+  const calm = [...plants]
+    .filter((p) => p.care && p.care.wateringSummer)
+    .sort((a, b) => b.care.wateringSummer - a.care.wateringSummer)[0];
+  const newest = plants.length > 1 ? [...plants].sort((a, b) => ageOf(b) - ageOf(a))[0] : null;
+  const heroEntry = [...plants]
+    .map((p) => ({ p, n: (journal[p.id] || []).length }))
+    .sort((a, b) => b.n - a.n)[0];
+  const photoStar = [...plants]
+    .map((p) => ({ p, n: (p.gallery || []).length }))
+    .sort((a, b) => b.n - a.n)[0];
+  const warmest = [...plants]
+    .filter((p) => p.care && p.care.minTempC != null)
+    .sort((a, b) => b.care.minTempC - a.care.minTempC)[0];
+  const spotCount = {};
+  plants.forEach((p) => {
+    const s = p.spot || (p.location === "balcony" ? "балкон" : "без места");
+    spotCount[s] = (spotCount[s] || 0) + 1;
+  });
+  const topSpot = Object.entries(spotCount).sort((a, b) => b[1] - a[1])[0];
+  const urgentPlants = plants.filter((p) => {
+    const d = (journal[p.id] || []).find((e) => e.type === "diagnosis");
+    return d && d.severity === "urgent";
+  });
+  const diff = { simple: 0, mid: 0, hard: 0 };
+  plants.forEach((p) => {
+    const t = ((p.care && p.care.difficulty) || "").toLowerCase();
+    if (t.includes("прост")) diff.simple++;
+    else if (t.includes("каприз")) diff.hard++;
+    else if (t) diff.mid++;
+  });
+  const withAge = plants.filter((p) => p.ownedSince);
+  const avgYears = withAge.length
+    ? withAge.reduce((s, p) => s + (Date.now() - ageOf(p)) / 31557600000, 0) / withAge.length
+    : null;
+  const fmtStay = (y) =>
+    y < 1 ? `${Math.max(1, Math.round(y * 12))} мес.` : `${(Math.round(y * 10) / 10).toString().replace(".", ",")} г.`;
+
   const StatCard = ({ icon, value, label, onClick }) => (
     <button
       onClick={onClick}
@@ -2656,7 +2694,12 @@ function StatsView({ plants, journal, onOpen }) {
 
   return (
     <div>
-      <h2 style={{ ...serif, fontWeight: 400, fontSize: 22, margin: "4px 0 16px" }}>Сад в цифрах</h2>
+      <h2 style={{ ...serif, fontWeight: 400, fontSize: 22, margin: "4px 0 6px" }}>Сад в цифрах</h2>
+      {diff.simple + diff.mid + diff.hard > 0 && (
+        <p style={{ ...sans, fontSize: 13, color: C.moss, margin: "0 0 14px" }}>
+          характеры: {diff.simple} {plural(diff.simple, "простой", "простых", "простых")} · {diff.mid} {plural(diff.mid, "средний", "средних", "средних")} · {diff.hard} {plural(diff.hard, "капризный", "капризных", "капризных")}
+        </p>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10 }}>
         <StatCard icon="🌿" value={plants.length} label={`${plural(plants.length, "растение", "растения", "растений")} всего`} />
         <StatCard icon="🏠" value={home} label="живут дома" />
@@ -2673,6 +2716,42 @@ function StatsView({ plants, journal, onOpen }) {
         {capricious.length > 0 && (
           <StatCard icon="👑" value={capricious.map((p) => p.nickname || p.name).join(", ")}
             label={plural(capricious.length, "капризное создание", "капризных создания", "капризных созданий")} />
+        )}
+        <StatCard icon="🍽" value={feeds30} label={`${plural(feeds30, "подкормка", "подкормки", "подкормок")} за месяц`} />
+        {calm && (!thirstiest || calm.id !== thirstiest.id) && (
+          <StatCard icon="🐫" value={calm.nickname || calm.name}
+            label={`самое неприхотливое — полив раз в ${calm.care.wateringSummer} дн.`} onClick={() => onOpen(calm.id)} />
+        )}
+        {newest && (
+          <StatCard icon="🌱" value={newest.nickname || newest.name}
+            label={`новичок сада, ${newest.ownedSince ? "у вас с " + fmtMonth(newest.ownedSince) : "с " + fmtDate(newest.addedAt)}`}
+            onClick={() => onOpen(newest.id)} />
+        )}
+        {heroEntry && heroEntry.n > 2 && (
+          <StatCard icon="📔" value={heroEntry.p.nickname || heroEntry.p.name}
+            label={`герой дневника — ${heroEntry.n} ${plural(heroEntry.n, "запись", "записи", "записей")}`}
+            onClick={() => onOpen(heroEntry.p.id)} />
+        )}
+        {photoStar && photoStar.n > 1 && (
+          <StatCard icon="📸" value={photoStar.p.nickname || photoStar.p.name}
+            label={`фотозвезда — ${photoStar.n} ${plural(photoStar.n, "снимок", "снимка", "снимков")}`}
+            onClick={() => onOpen(photoStar.p.id)} />
+        )}
+        {warmest && (
+          <StatCard icon="🥶" value={warmest.nickname || warmest.name}
+            label={`самое теплолюбивое — не ниже ${warmest.care.minTempC}°C`}
+            onClick={() => onOpen(warmest.id)} />
+        )}
+        {topSpot && topSpot[1] > 1 && (
+          <StatCard icon="🏘" value={topSpot[0]}
+            label={`самое населённое место — ${topSpot[1]} ${plural(topSpot[1], "растение", "растения", "растений")}`} />
+        )}
+        {avgYears != null && (
+          <StatCard icon="⏳" value={fmtStay(avgYears)} label="средний стаж жильцов в доме" />
+        )}
+        {urgentPlants.length > 0 && (
+          <StatCard icon="🚑" value={urgentPlants.map((p) => p.nickname || p.name).join(", ")}
+            label="последний осмотр тревожный — проверить" />
         )}
       </div>
 
