@@ -347,6 +347,23 @@ ${recent ? "Из дневника: " + recent : "Дневник пока пус�
   return askClaude(apiMessages);
 }
 
+async function needsOrder(needs, plants, journal, apartment) {
+  const items = needs
+    .map((n) => {
+      const p = n.plantId ? plants.find((x) => x.id === n.plantId) : null;
+      return `• ${n.text}${p ? ` (для: ${p.nickname || p.name})` : " (для сада в целом)"}`;
+    })
+    .join("\n");
+  const prompt = `Ты — практичный и заботливый садовник. Человек собирается сделать заказ для домашнего сада.
+Про квартиру: ${apartment}
+Сад:
+${buildGardenContext(plants, journal)}
+Список «купить»:
+${items}
+Помоги собрать заказ: сгруппируй позиции (грунты, удобрения, инвентарь), где уместно — объедини совместимые (один грунт/удобрение на несколько растений), прикинь разумные объёмы с небольшим запасом, опираясь на паспорта растений. Если перед пересадками очевидно не хватает чего-то важного (дренаж, кашпо на размер больше) — деликатно добавь в конце пункт «возможно, пригодится». Ответь коротким структурированным текстом по-русски, без markdown-заголовков, можно с эмодзи и списком через •.`;
+  return askClaude([{ role: "user", content: prompt }]);
+}
+
 async function identifyPlant(imageBase64) {
   const prompt = `Определи вид комнатного растения на фото.
 Ответь ТОЛЬКО валидным JSON без markdown:
@@ -520,6 +537,7 @@ function MyGarden() {
   const [plants, setPlants] = useState([]);
   const [journal, setJournal] = useState({});
   const [wishlist, setWishlist] = useState([]);
+  const [needs, setNeeds] = useState([]);
   const [profile, setProfile] = useState(null);
   const [prefillName, setPrefillName] = useState("");
   const [lastBackup, setLastBackup] = useState(() => {
@@ -550,6 +568,7 @@ function MyGarden() {
           setPlants(d.plants || []);
           setJournal(d.journal || {});
           setWishlist(d.wishlist || []);
+          setNeeds(d.needs || []);
           setProfile(d.profile || null);
           localUpdated = d.updatedAt || 0;
         }
@@ -577,6 +596,7 @@ function MyGarden() {
               setPlants(d.plants || []);
               setJournal(d.journal || {});
               setWishlist(d.wishlist || []);
+              setNeeds(d.needs || []);
               setProfile(d.profile || null);
               await appStorage.set("garden:data", j.data);
               setSync({ code, at: Date.now() });
@@ -612,12 +632,13 @@ function MyGarden() {
     })();
   }, [loaded]);
 
-  async function persist(nextPlants, nextJournal, nextWishlist, nextProfile) {
+  async function persist(nextPlants, nextJournal, nextWishlist, nextProfile, nextNeeds) {
     const payload = JSON.stringify({
       plants: nextPlants,
       journal: nextJournal,
       wishlist: nextWishlist,
       profile: nextProfile,
+      needs: nextNeeds,
       updatedAt: Date.now(),
     });
     if (payload.length > 4_500_000 && !sizeWarned.current) {
@@ -654,7 +675,7 @@ function MyGarden() {
 
   async function enableSync() {
     const code = genSyncCode();
-    const payload = JSON.stringify({ plants, journal, wishlist, profile, updatedAt: Date.now() });
+    const payload = JSON.stringify({ plants, journal, wishlist, profile, needs, updatedAt: Date.now() });
     const ok = await pushNow(code, payload);
     if (!ok) { showToast("Не удалось включить — проверьте связь"); return; }
     try { await appStorage.set("garden:sync", JSON.stringify({ code })); } catch (e) {}
@@ -675,6 +696,7 @@ function MyGarden() {
       setPlants(d.plants || []);
       setJournal(d.journal || {});
       setWishlist(d.wishlist || []);
+      setNeeds(d.needs || []);
       setProfile(d.profile || null);
       await appStorage.set("garden:data", j.data);
       await appStorage.set("garden:sync", JSON.stringify({ code }));
@@ -692,17 +714,41 @@ function MyGarden() {
     showToast("Синхронизация отключена на этом устройстве");
   }
 
-  function update(nextPlants, nextJournal, nextWishlist) {
+  function addNeed(text, plantId) {
+    const t = (text || "").trim();
+    if (!t) return;
+    update(plants, journal, undefined, [{ id: uid(), text: t, plantId: plantId || null, addedAt: now() }, ...needs]);
+    showToast("Записано в нужное 🧺");
+  }
+
+  function buyNeed(item) {
+    const nn = needs.filter((n) => n.id !== item.id);
+    if (item.plantId && plants.find((p) => p.id === item.plantId)) {
+      const nj = addJournal(item.plantId, "event", "Куплено: " + item.text + " 🧺");
+      update(plants, nj, undefined, nn);
+    } else {
+      update(plants, journal, undefined, nn);
+    }
+    showToast("Куплено ✓");
+  }
+
+  function removeNeed(id) {
+    update(plants, journal, undefined, needs.filter((n) => n.id !== id));
+  }
+
+  function update(nextPlants, nextJournal, nextWishlist, nextNeeds) {
     const nw = nextWishlist !== undefined ? nextWishlist : wishlist;
+    const nn = nextNeeds !== undefined ? nextNeeds : needs;
     setPlants(nextPlants);
     setJournal(nextJournal);
     setWishlist(nw);
-    persist(nextPlants, nextJournal, nw, profile);
+    setNeeds(nn);
+    persist(nextPlants, nextJournal, nw, profile, nn);
   }
 
   function saveProfile(p) {
     setProfile(p);
-    persist(plants, journal, wishlist, p);
+    persist(plants, journal, wishlist, p, needs);
   }
 
   const apartment = useMemo(() => apartmentText(profile), [profile]);
@@ -737,7 +783,7 @@ function MyGarden() {
     const np = plants.filter((x) => x.id !== p.id);
     const nj = { ...journal };
     delete nj[p.id];
-    update(np, nj);
+    update(np, nj, undefined, needs.filter((n) => n.plantId !== p.id));
     setView("garden");
   }
 
@@ -769,7 +815,7 @@ function MyGarden() {
 
   /* ── экспорт / импорт ── */
   function exportGarden() {
-    const blob = new Blob([JSON.stringify({ plants, journal, wishlist, profile }, null, 2)], {
+    const blob = new Blob([JSON.stringify({ plants, journal, wishlist, profile, needs }, null, 2)], {
       type: "application/json",
     });
     const a = document.createElement("a");
@@ -788,8 +834,9 @@ function MyGarden() {
       setPlants(d.plants);
       setJournal(d.journal || {});
       setWishlist(d.wishlist || []);
+      setNeeds(d.needs || []);
       setProfile(d.profile || null);
-      persist(d.plants, d.journal || {}, d.wishlist || [], d.profile || null);
+      persist(d.plants, d.journal || {}, d.wishlist || [], d.profile || null, d.needs || []);
       showToast("Сад восстановлен из копии 🌱");
     } catch {
       showToast("Файл не похож на копию сада");
@@ -848,6 +895,9 @@ function MyGarden() {
             <Chip active={view === "chat"} onClick={() => setView("chat")}>💬 Садовник</Chip>
             <Chip active={view === "wishlist"} onClick={() => setView("wishlist")}>
               🌷 Вишлист{wishlist.length > 0 ? ` · ${wishlist.length}` : ""}
+            </Chip>
+            <Chip active={view === "needs"} onClick={() => setView("needs")}>
+              🧺 Нужное{needs.length > 0 ? ` · ${needs.length}` : ""}
             </Chip>
             <Chip active={view === "stats"} onClick={() => setView("stats")}>📊 Статистика</Chip>
             <Chip active={view === "setup"} onClick={() => setView("setup")}>🏡 Квартира</Chip>
@@ -949,6 +999,12 @@ function MyGarden() {
           <StatsView plants={plants} journal={journal}
             onOpen={(id) => { setOpenId(id); setView("plant"); }} />
         )}
+        {view === "needs" && (
+          <NeedsView needs={needs} plants={plants} journal={journal} apartment={apartment}
+            onAdd={(t) => addNeed(t, null)} onBuy={buyNeed} onRemove={removeNeed}
+            onOpenPlant={(id) => { setOpenId(id); setView("plant"); }}
+            showToast={showToast} />
+        )}
         {view === "vacation" && (
           <VacationView plants={plants} dueInfoFn={dueInfo}
             onBack={() => setView("today")} showToast={showToast} />
@@ -1004,6 +1060,10 @@ function MyGarden() {
               update(np, nj);
               showToast("Фото добавлено в галерею 📸");
             }}
+            needs={needs.filter((n) => n.plantId === openPlant.id)}
+            onAddNeed={(t) => addNeed(t, openPlant.id)}
+            onBuyNeed={buyNeed}
+            onRemoveNeed={removeNeed}
             onGalleryDelete={(gid) => {
               const np = plants.map((x) =>
                 x.id === openPlant.id
@@ -1481,8 +1541,9 @@ function PassportGrid({ care }) {
 }
 
 /* ─────────────────────────  Карточка растения  ───────────────────────── */
-function PlantView({ plant, apartment, spots, onMove, entries, dueInfo, onBack, onWater, onFeed, onDelete, onNote, onDeleteEntry, onDiagnosis, onUpdateCare, onEdit, onGalleryAdd, onGalleryDelete, showToast }) {
+function PlantView({ plant, apartment, spots, onMove, entries, dueInfo, onBack, onWater, onFeed, onDelete, onNote, onDeleteEntry, onDiagnosis, onUpdateCare, onEdit, onGalleryAdd, onGalleryDelete, needs, onAddNeed, onBuyNeed, onRemoveNeed, showToast }) {
   const [note, setNote] = useState("");
+  const [needText, setNeedText] = useState("");
   const [moving, setMoving] = useState(false);
   const [galSrc, setGalSrc] = useState(false);
   const [galView, setGalView] = useState(null);
@@ -1816,6 +1877,32 @@ function PlantView({ plant, apartment, spots, onMove, entries, dueInfo, onBack, 
       </div>
 
       <div style={{ marginTop: 22 }}>
+        <h3 style={{ ...serif, fontWeight: 400, fontSize: 18, margin: "0 0 10px" }}>
+          🧺 Нужное для {plant.nickname || plant.name}{(needs || []).length > 0 ? ` · ${needs.length}` : ""}
+        </h3>
+        {(needs || []).map((n) => (
+          <div key={n.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${C.line}`, ...sans, fontSize: 14 }}>
+            <div style={{ flex: 1, color: C.ink }}>{n.text}</div>
+            <Btn small tone="ghost" onClick={() => onBuyNeed(n)}>✓ куплено</Btn>
+            <button onClick={() => onRemoveNeed(n.id)} title="убрать"
+              style={{ ...sans, background: "none", border: "none", color: C.sage, cursor: "pointer", fontSize: 15, padding: "0 2px" }}>
+              ×
+            </button>
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <input style={{ ...inputStyle, flex: 1 }} value={needText}
+            onChange={(e) => setNeedText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && needText.trim()) { onAddNeed(needText); setNeedText(""); } }}
+            placeholder="купить: земля для ароидных, ~3 л…" />
+          <Btn small onClick={() => { if (needText.trim()) { onAddNeed(needText); setNeedText(""); } }}>В список</Btn>
+        </div>
+        <div style={{ ...sans, fontSize: 12, color: C.sage, marginTop: 6 }}>
+          всё нужное собирается в общий список — вкладка 🧺 Нужное
+        </div>
+      </div>
+
+      <div style={{ marginTop: 22 }}>
         <h3 style={{ ...serif, fontWeight: 400, fontSize: 18, margin: "0 0 10px" }}>Дневник</h3>
         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
           <input style={{ ...inputStyle, flex: 1 }} value={note} onChange={(e) => setNote(e.target.value)}
@@ -2099,6 +2186,109 @@ function WishlistView({ wishlist, plants, journal, apartment, onAdd, onRemove, o
             </div>
           </div>
         ))
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────  Нужное (список покупок)  ───────────────────────── */
+function NeedsView({ needs, plants, journal, apartment, onAdd, onBuy, onRemove, onOpenPlant, showToast }) {
+  const [text, setText] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [order, setOrder] = useState("");
+
+  const general = needs.filter((n) => !n.plantId || !plants.find((p) => p.id === n.plantId));
+  const byPlant = plants
+    .map((p) => ({ p, items: needs.filter((n) => n.plantId === p.id) }))
+    .filter((x) => x.items.length > 0);
+
+  function add() {
+    const t = text.trim();
+    if (!t) return;
+    onAdd(t);
+    setText("");
+  }
+
+  async function makeOrder() {
+    setAiBusy(true);
+    try {
+      const answer = await needsOrder(needs, plants, journal, apartment);
+      setOrder((answer || "").trim());
+    } catch {
+      showToast("Садовник задумался — попробуйте ещё раз");
+    }
+    setAiBusy(false);
+  }
+
+  const Row = ({ n }) => (
+    <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${C.line}`, ...sans, fontSize: 14 }}>
+      <div style={{ flex: 1, color: C.ink }}>{n.text}</div>
+      <Btn small tone="ghost" onClick={() => onBuy(n)}>✓ куплено</Btn>
+      <button onClick={() => onRemove(n.id)} title="убрать"
+        style={{ ...sans, background: "none", border: "none", color: C.sage, cursor: "pointer", fontSize: 15, padding: "0 2px" }}>
+        ×
+      </button>
+    </div>
+  );
+
+  return (
+    <div style={{ maxWidth: 600 }}>
+      <h2 style={{ ...serif, fontWeight: 400, fontSize: 22, margin: "4px 0 6px" }}>Нужное для сада</h2>
+      <p style={{ ...sans, fontSize: 14, color: C.moss, margin: "0 0 16px" }}>
+        Сюда стекается всё «купить» — из карточек растений и общесадовое. Отметка ✓ уходит в дневник растения.
+      </p>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+        <input style={{ ...inputStyle, flex: 1 }} value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+          placeholder="для сада в целом: секатор, кашпо 21 см…" />
+        <Btn small onClick={add}>Добавить</Btn>
+      </div>
+
+      {needs.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "36px 20px" }}>
+          <div style={{ fontSize: 36 }}>🧺</div>
+          <p style={{ ...serif, fontStyle: "italic", color: C.sage, fontSize: 15, marginTop: 8 }}>
+            Список пуст. Записывайте нужное прямо из карточек растений — оно появится здесь.
+          </p>
+        </div>
+      ) : (
+        <div>
+          <div style={{ marginBottom: 14 }}>
+            <Btn small tone="water" onClick={makeOrder} disabled={aiBusy}>
+              {aiBusy ? "Собираю заказ…" : "🌿 Помочь собрать заказ"}
+            </Btn>
+          </div>
+          {order && (
+            <div style={{ background: C.waterSoft, borderRadius: 14, padding: "12px 14px", marginBottom: 16, ...sans, fontSize: 14, color: C.ink, whiteSpace: "pre-wrap", lineHeight: 1.55 }}>
+              {order}
+              <div style={{ marginTop: 8 }}>
+                <button onClick={() => setOrder("")}
+                  style={{ ...sans, background: "none", border: "none", color: C.water, fontSize: 12, cursor: "pointer", textDecoration: "underline", padding: 0 }}>
+                  скрыть
+                </button>
+              </div>
+            </div>
+          )}
+
+          {general.length > 0 && (
+            <div style={{ marginBottom: 18 }}>
+              <h3 style={{ ...serif, fontWeight: 400, fontSize: 17, margin: "0 0 6px" }}>🏡 Для сада в целом</h3>
+              {general.map((n) => <Row key={n.id} n={n} />)}
+            </div>
+          )}
+
+          {byPlant.map(({ p, items }) => (
+            <div key={p.id} style={{ marginBottom: 18 }}>
+              <button onClick={() => onOpenPlant(p.id)}
+                style={{ ...serif, background: "none", border: "none", color: C.moss, cursor: "pointer", padding: 0, fontSize: 17, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                <PlantThumb plant={p} size={26} radius={7} /> {p.nickname || p.name}
+              </button>
+              {items.map((n) => <Row key={n.id} n={n} />)}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
