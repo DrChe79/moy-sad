@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "10.07-23:45";
+const APP_VERSION = "11.07-12:48";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -121,8 +121,6 @@ function compressImage(file, maxSide, quality) {
 
 /* ─────────────────────────  Синхронизация между устройствами  ───────────────────────── */
 const SYNC_BASE = PROXY_URL;
-const WALLPAPER = "fon.jpg"; // фоновое фото рядом с index.html; если файла нет — фон просто не показывается
-
 const GLOBAL_CSS = `
 button{transition:transform .12s ease, opacity .12s ease}
 button:active{transform:scale(.96)}
@@ -634,6 +632,7 @@ function MyGarden() {
   const [toast, setToast] = useState(null);
   const [mood, setMood] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
+  const [wallpaper, setWallpaper] = useState(null);
   const [sync, setSync] = useState({ code: null, at: null });
   const syncTimer = useRef(null);
   const sizeWarned = useRef(false);
@@ -659,6 +658,11 @@ function MyGarden() {
       } catch (e) {
         /* сада ещё нет — начинаем с чистого листа */
       }
+
+      try {
+        const w = await appStorage.get("garden:wallpaper");
+        if (w && w.value) setWallpaper(w.value);
+      } catch (e) { /* обои не настроены */ }
 
       let code = null;
       if (SYNC_BASE) {
@@ -837,6 +841,23 @@ function MyGarden() {
     update(plants, journal, undefined, undefined, inventory.filter((i) => i.id !== id));
   }
 
+  async function setWallpaperPhoto(file) {
+    try {
+      const dataUrl = await compressImage(file, 1000, 0.62);
+      await appStorage.set("garden:wallpaper", dataUrl);
+      setWallpaper(dataUrl);
+      showToast("Фоновое фото установлено 🖼");
+    } catch (e) {
+      showToast("Не получилось обработать фото");
+    }
+  }
+
+  async function clearWallpaper() {
+    try { await appStorage.delete("garden:wallpaper"); } catch (e) {}
+    setWallpaper(null);
+    showToast("Фон убран");
+  }
+
   function removeNeed(id) {
     update(plants, journal, undefined, needs.filter((n) => n.id !== id));
   }
@@ -978,15 +999,17 @@ function MyGarden() {
   return (
     <div style={{ minHeight: "100vh", background: C.paper, color: C.ink }}>
       <style>{GLOBAL_CSS}</style>
-      <div
-        aria-hidden="true"
-        style={{
-          position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-          backgroundImage: `url(${WALLPAPER})`,
-          backgroundSize: "cover", backgroundPosition: "center 28%",
-          opacity: 0.13,
-        }}
-      />
+      {wallpaper && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
+            backgroundImage: `url(${wallpaper})`,
+            backgroundSize: "cover", backgroundPosition: "center 28%",
+            opacity: 0.13,
+          }}
+        />
+      )}
       {/* ── шапка ── */}
       <header style={{ position: "relative", zIndex: 1, padding: "28px 20px 18px", borderBottom: `1px solid ${C.line}` }}>
         <Watercolor />
@@ -1027,6 +1050,9 @@ function MyGarden() {
             }}
             onCancel={() => setView("garden")}
             onImport={() => importRef.current && importRef.current.click()}
+            wallpaper={wallpaper}
+            onSetWallpaper={setWallpaperPhoto}
+            onClearWallpaper={clearWallpaper}
             syncAvailable={!!SYNC_BASE}
             sync={sync}
             onEnableSync={enableSync}
@@ -2845,7 +2871,8 @@ function StatsView({ plants, journal, onOpen }) {
 }
 
 /* ─────────────────────────  Профиль квартиры  ───────────────────────── */
-function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, syncAvailable, sync, onEnableSync, onConnectSync, onDisableSync }) {
+function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, wallpaper, onSetWallpaper, onClearWallpaper, syncAvailable, sync, onEnableSync, onConnectSync, onDisableSync }) {
+  const wpRef = useRef(null);
   const [connCode, setConnCode] = useState("");
   const [copied, setCopied] = useState(false);
 
@@ -2990,6 +3017,33 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, syncAvail
         </Btn>
         {!firstRun && <Btn tone="ghost" onClick={onCancel}>Отмена</Btn>}
       </div>
+
+      {!firstRun && (
+        <div style={{ marginTop: 28, paddingTop: 18, borderTop: `1px solid ${C.line}` }}>
+          <h3 style={{ ...serif, fontWeight: 400, fontSize: 18, margin: "0 0 8px" }}>
+            🖼 Фоновое фото
+          </h3>
+          <p style={{ ...sans, fontSize: 13, color: C.moss, margin: "0 0 10px", lineHeight: 1.5 }}>
+            Нежные обои под страницами сада. Хранится только на этом устройстве — никуда не выгружается и другим по ссылке не видно.
+          </p>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            {wallpaper && (
+              <img src={wallpaper} alt="" style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 12 }} />
+            )}
+            <Btn small tone="ghost" onClick={() => wpRef.current && wpRef.current.click()}>
+              {wallpaper ? "Заменить фото" : "Выбрать фото"}
+            </Btn>
+            {wallpaper && (
+              <button onClick={onClearWallpaper}
+                style={{ ...sans, background: "none", border: "none", color: C.sage, fontSize: 13, cursor: "pointer", textDecoration: "underline", padding: "7px 6px", margin: "-7px -6px" }}>
+                убрать фон
+              </button>
+            )}
+            <input ref={wpRef} type="file" accept="image/*" style={{ display: "none" }}
+              onChange={(e) => { if (e.target.files[0]) onSetWallpaper(e.target.files[0]); e.target.value = ""; }} />
+          </div>
+        </div>
+      )}
 
       {syncAvailable && (
         <div style={{ marginTop: 28, paddingTop: 18, borderTop: `1px solid ${C.line}` }}>
