@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "12.07-12:02";
+const APP_VERSION = "12.07-12:10";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -178,12 +178,12 @@ ${roster || "пусто"}
 Ответь ТОЛЬКО валидным JSON без markdown:
 {
  "summary": "что это и для чего, 1-2 фразы",
- "matches": [{"plantId": "идентификатор из списка", "how": "как применять именно для этого растения: дозировка/частота/сезон, 1 фраза"}],
+ "matches": [{"plantId": "идентификатор из списка", "how": "как применять именно для него: дозировка/частота, КОРОТКО, до 12 слов"}],
  "caution": "кому из сада НЕ подходит или важное предостережение, 1 фраза, либо null"
 }
-ВАЖНО: перечисли в matches ВСЕ без исключения растения сада, которым средство уместно, даже если их много — не сокращай список. Если не подходит никому — matches пустой, объясни в summary.`;
-  const text = await askClaude([{ role: "user", content: prompt }]);
-  return parseJson(text);
+ВАЖНО: перечисли в matches ВСЕ без исключения растения сада, которым средство уместно, даже если их много — не сокращай список. Пиши сжато: summary — 1 фраза, how — до 12 слов. Если не подходит никому — matches пустой, объясни в summary.`;
+  const text = await askClaude([{ role: "user", content: prompt }], 2000);
+  return parseJsonSalvage(text);
 }
 
 /* ─────────────────────────  Квартира (профиль пользователя)  ───────────────────────── */
@@ -237,14 +237,14 @@ function spotsFromProfile(profile) {
 }
 
 /* ─────────────────────────  Работа с ИИ  ───────────────────────── */
-async function askClaude(messages) {
+async function askClaude(messages, maxTokens) {
   if (!AI_READY) throw new Error("proxy not configured");
   const response = await fetch(PROXY_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
-      max_tokens: 1600,
+      max_tokens: maxTokens || 1600,
       messages,
     }),
   });
@@ -261,6 +261,27 @@ function parseJson(text) {
   const start = clean.indexOf("{");
   const end = clean.lastIndexOf("}");
   return JSON.parse(clean.slice(start, end + 1));
+}
+
+/* Если ответ оборвался на середине — собираем валидный JSON из целых кусков */
+function parseJsonSalvage(text) {
+  try { return parseJson(text); } catch (e) { /* пробуем спасти */ }
+  const clean = (text || "").replace(/```json|```/g, "").trim();
+  const start = clean.indexOf("{");
+  if (start < 0) throw new Error("no json");
+  const s = clean.slice(start);
+  let cut = s.length;
+  for (let step = 0; step < 40; step++) {
+    const i = s.lastIndexOf("}", cut - 1);
+    if (i < 0) break;
+    const base = s.slice(0, i + 1);
+    const sufs = ["", "]}", "}]}", '"}]}'];
+    for (let k = 0; k < sufs.length; k++) {
+      try { return JSON.parse(base + sufs[k]); } catch (e2) { /* следующий вариант */ }
+    }
+    cut = i;
+  }
+  throw new Error("unparsable");
 }
 
 async function generatePassport(name, location, spot, apartment) {
