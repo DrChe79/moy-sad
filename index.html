@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "12.07-12:10";
+const APP_VERSION = "12.07-12:17";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -454,14 +454,16 @@ async function identifyPlant(imageBase64) {
   return parseJson(text);
 }
 
-async function gardenMood(plants, journal, dueCount) {
+async function gardenMood(plants, journal, dueCount, prev) {
   const events = Object.values(journal)
     .flat()
     .sort((a, b) => new Date(b.date) - new Date(a.date))
     .slice(0, 3)
     .map((e) => e.text)
     .join("; ");
-  const prompt = `Ты — тёплый садовник домашнего сада. Одной короткой фразой (до 18 слов, по-русски, без кавычек и без эмодзи в начале) опиши настроение сада сегодня. Ласково, живо, без пафоса, можно с лёгкой улыбкой.
+  const prompt = `Ты — тёплый садовник домашнего сада с мягким чувством юмора. Одной короткой фразой (до 18 слов, по-русски, без кавычек, без эмодзи в начале) опиши настроение сада сегодня.
+Тон: милый и добрый, иногда — нежная ирония или ласковое ворчание от лица сада и его жителей. Никакого сарказма, канцелярита и пафоса.
+Меняй приёмы день ото дня: то наблюдение, то шутка, то тихая радость, то забота.${prev ? ` Вчера было: «${prev}» — сегодня скажи совсем по-другому.` : ""}
 Данные: растений в саду ${plants.length}; хотят пить сейчас: ${dueCount}; последние события: ${events || "тихо, без событий"}.`;
   const text = await askClaude([{ role: "user", content: prompt }]);
   return (text || "").trim().replace(/^["«]|["»]$/g, "");
@@ -732,13 +734,15 @@ function MyGarden() {
     if (!loaded || plants.length === 0) return;
     (async () => {
       const today = new Date().toISOString().slice(0, 10);
+      let prev = "";
       try {
         const r = await appStorage.get("garden:mood");
         const m = JSON.parse(r.value);
         if (m.date === today && m.text) { setMood(m.text); return; }
+        prev = (m && m.text) || "";
       } catch (e) { /* кэша нет */ }
       try {
-        const text = await gardenMood(plants, journal, dueList.length);
+        const text = await gardenMood(plants, journal, dueList.length, prev);
         if (text) {
           setMood(text);
           try { await appStorage.set("garden:mood", JSON.stringify({ date: today, text })); } catch (e) {}
