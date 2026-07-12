@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "11.07-12:48";
+const APP_VERSION = "12.07-11:23";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -1227,8 +1227,10 @@ function MyGarden() {
                   { v: "wishlist", t: `🌷 Вишлист${wishlist.length ? " · " + wishlist.length : ""}` },
                   { v: "stats", t: "📊 Статистика" },
                   { v: "setup", t: "🏡 Квартира" },
+                  { v: "__export", t: "💾 Скачать копию сада" },
                 ].map((m) => (
-                  <button key={m.v} onClick={() => { setView(m.v); setMoreOpen(false); }}
+                  <button key={m.v}
+                    onClick={() => { if (m.v === "__export") { exportGarden(); } else { setView(m.v); } setMoreOpen(false); }}
                     style={{ ...sans, display: "block", width: "100%", textAlign: "left", background: view === m.v ? C.sageSoft : "none", border: "none", borderRadius: 12, padding: "13px 14px", fontSize: 15, color: C.ink, cursor: "pointer" }}>
                     {m.t}
                   </button>
@@ -1295,7 +1297,7 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
         </p>
         <Btn onClick={onAdd} tone="moss">Посадить первое растение</Btn>
         <div style={{ marginTop: 26 }}>
-          <button onClick={onImportClick} style={{ ...sans, background: "none", border: "none", color: C.sage, fontSize: 13, cursor: "pointer", textDecoration: "underline" }}>
+          <button onClick={onImportClick} style={{ ...sans, background: "none", border: "none", color: C.sage, fontSize: 13, cursor: "pointer", textDecoration: "underline", padding: "9px 8px", margin: "-9px -8px" }}>
             восстановить сад из копии
           </button>
         </div>
@@ -1332,7 +1334,9 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
               key={p.id}
               onClick={() => onOpen(p.id)}
               style={{
-                textAlign: "left", background: "#fffef9", border: `1px solid ${C.line}`,
+                textAlign: "left", background: "#fffef9",
+                border: d.waterDue ? `1.5px solid ${C.water}` : `1px solid ${C.line}`,
+                boxShadow: d.waterDue ? `0 0 0 3px ${C.waterSoft}` : "none",
                 borderRadius: 16, padding: 12, cursor: "pointer", display: "flex", gap: 12,
               }}
             >
@@ -1365,13 +1369,13 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
       )}
 
       <div style={{ marginTop: 34, textAlign: "center", display: "flex", gap: 18, justifyContent: "center", flexWrap: "wrap" }}>
-        <button onClick={onSettings} style={{ ...sans, background: "none", border: "none", color: C.sage, fontSize: 13, cursor: "pointer", textDecoration: "underline" }}>
+        <button onClick={onSettings} style={{ ...sans, background: "none", border: "none", color: C.sage, fontSize: 13, cursor: "pointer", textDecoration: "underline", padding: "9px 8px", margin: "-9px -8px" }}>
           🏡 настроить квартиру
         </button>
-        <button onClick={onExport} style={{ ...sans, background: "none", border: "none", color: C.sage, fontSize: 13, cursor: "pointer", textDecoration: "underline" }}>
+        <button onClick={onExport} style={{ ...sans, background: "none", border: "none", color: C.sage, fontSize: 13, cursor: "pointer", textDecoration: "underline", padding: "9px 8px", margin: "-9px -8px" }}>
           скачать копию сада
         </button>
-        <button onClick={onImportClick} style={{ ...sans, background: "none", border: "none", color: C.sage, fontSize: 13, cursor: "pointer", textDecoration: "underline" }}>
+        <button onClick={onImportClick} style={{ ...sans, background: "none", border: "none", color: C.sage, fontSize: 13, cursor: "pointer", textDecoration: "underline", padding: "9px 8px", margin: "-9px -8px" }}>
           восстановить из копии
         </button>
         <span style={{ ...sans, fontSize: 12, color: C.sage, opacity: 0.7 }}>v{APP_VERSION}</span>
@@ -1666,11 +1670,19 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
         )}
       </div>
       {!care ? (
-        <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-          <Btn onClick={makePassport} disabled={busy}>
-            {busy ? "Листаю справочники…" : "✒️ Составить паспорт ухода"}
-          </Btn>
-          <Btn tone="ghost" onClick={onCancel}>Отмена</Btn>
+        <div>
+          <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+            <Btn onClick={makePassport} disabled={busy}>
+              {busy ? "Листаю справочники…" : "✒️ Составить паспорт ухода"}
+            </Btn>
+            <Btn tone="ghost" onClick={onCancel}>Отмена</Btn>
+          </div>
+          {name.trim() && !busy && (
+            <button onClick={save}
+              style={{ ...sans, background: "none", border: "none", color: C.sage, fontSize: 13, cursor: "pointer", textDecoration: "underline", padding: "10px 6px", margin: "0 -6px" }}>
+              или добавить пока без паспорта — составлю позже из карточки
+            </button>
+          )}
         </div>
       ) : (
         <div>
@@ -1737,13 +1749,12 @@ function PlantView({ plant, apartment, invText, inventory, spots, onMove, entrie
     }
   }
 
-  const [invOpen, setInvOpen] = useState(false);
   const invMatches = (inventory || [])
     .map((i) => {
       const m =
         i.ai &&
         (i.ai.matches || []).find(
-          (x) => x.plant === (plant.nickname || plant.name) || x.plant === plant.name
+          (x) => x.plantId === plant.id || x.plant === (plant.nickname || plant.name) || x.plant === plant.name
         );
       return m ? { item: i, how: m.how } : null;
     })
@@ -1962,6 +1973,17 @@ function PlantView({ plant, apartment, invText, inventory, spots, onMove, entrie
         </div>
       )}
 
+      {!plant.care && (
+        <div className="reveal" style={{ marginTop: 18, background: C.sageSoft + "66", border: `1px solid ${C.line}`, borderRadius: 16, padding: 16 }}>
+          <div style={{ ...serif, fontStyle: "italic", color: C.moss, marginBottom: 10 }}>
+            Паспорта ухода пока нет — без него не работают напоминания о поливе.
+          </div>
+          <Btn small onClick={refreshCare} disabled={careBusy}>
+            {careBusy ? "Листаю справочники…" : "✒️ Составить паспорт"}
+          </Btn>
+        </div>
+      )}
+
       {plant.care && (
         <div style={{ marginTop: 18, background: C.sageSoft + "66", border: `1px solid ${C.line}`, borderRadius: 16, padding: 16 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
@@ -1983,28 +2005,15 @@ function PlantView({ plant, apartment, invText, inventory, spots, onMove, entrie
       )}
 
       {invMatches.length > 0 && (
-        <div style={{ marginTop: 18, background: C.waterSoft + "99", border: `1px solid ${C.line}`, borderRadius: 16, overflow: "hidden" }}>
-          <button
-            onClick={() => setInvOpen(!invOpen)}
-            style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: "13px 16px", cursor: "pointer", display: "flex", alignItems: "baseline", gap: 8 }}
-          >
-            <span style={{ ...serif, fontStyle: "italic", color: C.moss, fontSize: 15, flex: 1 }}>
-              🧰 Из хозяйства подходит · {invMatches.length}
-            </span>
-            <span style={{ color: C.sage, fontSize: 11 }}>{invOpen ? "▲" : "▼"}</span>
-          </button>
-          {invOpen && (
-            <div className="reveal" style={{ padding: "0 16px 14px" }}>
-              {invMatches.map(({ item, how }) => (
-                <div key={item.id} style={{ ...sans, fontSize: 14, padding: "4px 0", color: C.ink, lineHeight: 1.45 }}>
-                  <b style={{ ...serif, fontWeight: 400 }}>{item.name}</b>
-                  {item.note ? <span style={{ color: C.moss }}> ({item.note})</span> : null}
-                  {" — "}{how}
-                </div>
-              ))}
+        <Fold title="🧰 Из хозяйства подходит" count={invMatches.length}>
+          {invMatches.map(({ item, how }) => (
+            <div key={item.id} style={{ ...sans, fontSize: 14, padding: "4px 0", color: C.ink, lineHeight: 1.45 }}>
+              <b style={{ ...serif, fontWeight: 400 }}>{item.name}</b>
+              {item.note ? <span style={{ color: C.moss }}> ({item.note})</span> : null}
+              {" — "}{how}
             </div>
-          )}
-        </div>
+          ))}
+        </Fold>
       )}
 
       <Fold title="📸 Галерея" count={(plant.gallery || []).length}>
@@ -2187,8 +2196,8 @@ function ChatView({ plants, journal, apartment, invText }) {
     if (bottomRef.current) bottomRef.current.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  async function send() {
-    const q = input.trim();
+  async function send(preset) {
+    const q = (typeof preset === "string" ? preset : input).trim();
     if ((!q && !pendingImage) || busy) return;
     const nextMsgs = [...messages, { role: "user", content: q, image: pendingImage }];
     setMessages(nextMsgs);
@@ -2240,6 +2249,11 @@ function ChatView({ plants, journal, apartment, invText }) {
             <p style={{ ...serif, fontStyle: "italic", color: C.moss, fontSize: 16, maxWidth: 400, margin: "10px auto 0" }}>
               Я знаю каждое растение вашего сада. Спросите, почему желтеют листья у монстеры, чем подкормить фикус — или просто пришлите фото 📷, осмотрю и скажу, как самочувствие.
             </p>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", marginTop: 16 }}>
+              {["Что полить сегодня?", "План подкормок на месяц", "Что занести с балкона первым?", "Чем обработать от вредителей?"].map((t) => (
+                <Chip key={t} onClick={() => send(t)}>{t}</Chip>
+              ))}
+            </div>
           </div>
         )}
         {messages.map((m, i) => (
@@ -2548,7 +2562,14 @@ function InventoryView({ inventory, plants, journal, apartment, onAdd, onPatch, 
     setBusyId(item.id);
     try {
       const r = await inventoryMatch(item, plants, journal, apartment);
-      onPatch(item.id, { ai: { ...r, at: now() } });
+      const withIds = {
+        ...r,
+        matches: (r.matches || []).map((m) => {
+          const pp = plants.find((x) => (x.nickname || x.name) === m.plant || x.name === m.plant);
+          return { ...m, plantId: pp ? pp.id : null };
+        }),
+      };
+      onPatch(item.id, { ai: { ...withIds, at: now() } });
     } catch {
       showToast("Садовник задумался — попробуйте ещё раз");
     }
@@ -2649,7 +2670,7 @@ function InventoryView({ inventory, plants, journal, apartment, onAdd, onPatch, 
                             {(i.ai.matches || []).length > 0 && (
                               <div style={{ marginTop: 6 }}>
                                 {i.ai.matches.map((m, k) => {
-                                  const p = plantByName(m.plant);
+                                  const p = (m.plantId && plants.find((x) => x.id === m.plantId)) || plantByName(m.plant);
                                   return (
                                     <div key={k} style={{ ...sans, fontSize: 13, padding: "4px 0", color: C.ink }}>
                                       {p ? (
