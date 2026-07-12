@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "12.07-11:23";
+const APP_VERSION = "12.07-12:02";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -165,18 +165,23 @@ function inventoryText(inventory) {
 }
 
 async function inventoryMatch(item, plants, journal, apartment) {
+  const roster = plants
+    .map((p) => `- plantId:"${p.id}" — ${p.nickname ? p.nickname + " (" + p.name + ")" : p.name}`)
+    .join("\n");
   const prompt = `Ты — практичный садовник. В хозяйстве есть: "${item.name}"${item.note ? ` (${item.note})` : ""}, категория: ${invCatT(item.category)}.
 Про квартиру: ${apartment}
-Сад:
+Сад (условия и уход):
 ${plants.length > 0 ? buildGardenContext(plants, journal) : "пока пуст"}
-Определи, что это за средство/предмет, и подбери, каким растениям из сада оно подходит и как его применять.
+Список растений с идентификаторами — в matches используй ТОЛЬКО эти plantId, копируя дословно:
+${roster || "пусто"}
+Определи, что это за средство/предмет, и подбери, каким растениям сада оно подходит и как его применять.
 Ответь ТОЛЬКО валидным JSON без markdown:
 {
  "summary": "что это и для чего, 1-2 фразы",
- "matches": [{"plant": "имя растения из сада ДОСЛОВНО как в списке (домашнее имя, если есть)", "how": "как применять именно для него: дозировка/частота/сезон, 1 фраза"}],
+ "matches": [{"plantId": "идентификатор из списка", "how": "как применять именно для этого растения: дозировка/частота/сезон, 1 фраза"}],
  "caution": "кому из сада НЕ подходит или важное предостережение, 1 фраза, либо null"
 }
-В matches включай только растения, которым это действительно уместно. Если не подходит никому — matches пустой, объясни в summary.`;
+ВАЖНО: перечисли в matches ВСЕ без исключения растения сада, которым средство уместно, даже если их много — не сокращай список. Если не подходит никому — matches пустой, объясни в summary.`;
   const text = await askClaude([{ role: "user", content: prompt }]);
   return parseJson(text);
 }
@@ -239,7 +244,7 @@ async function askClaude(messages) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
-      max_tokens: 1200,
+      max_tokens: 1600,
       messages,
     }),
   });
@@ -2562,14 +2567,20 @@ function InventoryView({ inventory, plants, journal, apartment, onAdd, onPatch, 
     setBusyId(item.id);
     try {
       const r = await inventoryMatch(item, plants, journal, apartment);
-      const withIds = {
-        ...r,
-        matches: (r.matches || []).map((m) => {
-          const pp = plants.find((x) => (x.nickname || x.name) === m.plant || x.name === m.plant);
-          return { ...m, plantId: pp ? pp.id : null };
-        }),
-      };
-      onPatch(item.id, { ai: { ...withIds, at: now() } });
+      const norm = (s) => (s || "").toString().toLowerCase().trim();
+      const resolved = (r.matches || [])
+        .map((m) => {
+          let pp = m.plantId ? plants.find((x) => x.id === m.plantId) : null;
+          if (!pp && m.plant) {
+            const q = norm(m.plant);
+            pp =
+              plants.find((x) => norm(x.nickname) === q || norm(x.name) === q) ||
+              plants.find((x) => norm(x.name).includes(q) || q.includes(norm(x.name)));
+          }
+          return pp ? { plantId: pp.id, plant: pp.nickname || pp.name, how: m.how } : null;
+        })
+        .filter(Boolean);
+      onPatch(item.id, { ai: { summary: r.summary, caution: r.caution || null, matches: resolved, at: now() } });
     } catch {
       showToast("Садовник задумался — попробуйте ещё раз");
     }
