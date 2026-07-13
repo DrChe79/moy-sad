@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "12.07-12:17";
+const APP_VERSION = "13.07-18:59";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -949,14 +949,22 @@ function MyGarden() {
   /* ── что «пора» ── */
   function dueInfo(p) {
     const interval = isSummer() ? p.care?.wateringSummer : p.care?.wateringWinter;
+    const neverWatered = !p.lastWatered;           // ни разу не поливалось в приложении
+    const daysHere = daysSince(p.addedAt);          // сколько в саду
     const dw = daysSince(p.lastWatered || p.addedAt);
-    const waterDue = interval && dw !== null && dw >= interval;
+    // Новичок, которого ещё ни разу не отметили политым, — сразу в напоминания:
+    // если есть интервал и уже прошёл, ИЛИ паспорта нет и растение живёт в саду хотя бы день.
+    const newcomerDue = neverWatered && (
+      (interval && dw !== null && dw >= interval) ||
+      (!interval && daysHere !== null && daysHere >= 1)
+    );
+    const waterDue = (interval && dw !== null && dw >= interval) || newcomerDue;
     let feedDue = false;
     if (isSummer() && p.care?.feedIntervalSummerDays) {
       const df = daysSince(p.lastFed || p.addedAt);
       feedDue = df !== null && df >= p.care.feedIntervalSummerDays;
     }
-    return { waterDue, feedDue, dw, interval };
+    return { waterDue, feedDue, dw, interval, neverWatered, daysHere };
   }
 
   const dueList = useMemo(
@@ -1357,7 +1365,13 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 12 }}>
-        {shown.map((p) => {
+        {[...shown].sort((a, b) => {
+          const ka = ((a.care && a.care.latinName) || a.name || "").toLowerCase();
+          const kb = ((b.care && b.care.latinName) || b.name || "").toLowerCase();
+          if (ka < kb) return -1;
+          if (ka > kb) return 1;
+          return new Date(a.addedAt) - new Date(b.addedAt);
+        }).map((p) => {
           const d = dueInfo(p);
           return (
             <button
@@ -1454,7 +1468,7 @@ function TodayView({ dueList, balconyAutumn, plants, dueInfoFn, onVacation, onWa
           </p>
         </div>
       ) : (
-        dueList.map(({ p, waterDue, feedDue, dw, interval }) => (
+        dueList.map(({ p, waterDue, feedDue, dw, interval, neverWatered }) => (
           <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, background: "#fffef9", border: `1px solid ${C.line}`, borderRadius: 16, padding: 12, marginBottom: 10 }}>
             <button onClick={() => onOpen(p.id)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
               <PlantThumb plant={p} size={54} />
@@ -1462,7 +1476,9 @@ function TodayView({ dueList, balconyAutumn, plants, dueInfoFn, onVacation, onWa
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ ...serif, fontSize: 16 }}>{p.nickname || p.name}</div>
               <div style={{ ...sans, fontSize: 13, color: C.moss }}>
-                {waterDue && `хочет пить — ${dw} дн. без полива (норма ${interval})`}
+                {waterDue && (neverWatered
+                  ? "новичок в саду — полить в первый раз"
+                  : `хочет пить — ${dw} дн. без полива (норма ${interval})`)}
                 {waterDue && feedDue && " · "}
                 {feedDue && "ждёт подкормки"}
               </div>
@@ -1779,13 +1795,23 @@ function PlantView({ plant, apartment, invText, inventory, spots, onMove, entrie
     }
   }
 
+  const pLatin = ((plant.care && plant.care.latinName) || "").toLowerCase().trim();
+  const pName = (plant.name || "").toLowerCase().trim();
   const invMatches = (inventory || [])
     .map((i) => {
-      const m =
-        i.ai &&
-        (i.ai.matches || []).find(
-          (x) => x.plantId === plant.id || x.plant === (plant.nickname || plant.name) || x.plant === plant.name
-        );
+      if (!i.ai) return null;
+      const list = i.ai.matches || [];
+      // 1) точное совпадение по экземпляру
+      let m = list.find((x) => x.plantId === plant.id);
+      // 2) по виду: латинское имя вердикта совпадает с латинским именем этого растения
+      if (!m && pLatin) m = list.find((x) => (x.latin || "").toLowerCase().trim() === pLatin);
+      // 3) по названию вида (на случай пустого латинского)
+      if (!m && pName) {
+        m = list.find((x) => {
+          const xn = (x.plant || "").toLowerCase().trim();
+          return xn === pName || xn.includes(pName) || pName.includes(xn);
+        });
+      }
       return m ? { item: i, how: m.how } : null;
     })
     .filter(Boolean);
@@ -2602,7 +2628,9 @@ function InventoryView({ inventory, plants, journal, apartment, onAdd, onPatch, 
               plants.find((x) => norm(x.nickname) === q || norm(x.name) === q) ||
               plants.find((x) => norm(x.name).includes(q) || q.includes(norm(x.name)));
           }
-          return pp ? { plantId: pp.id, plant: pp.nickname || pp.name, how: m.how } : null;
+          return pp
+            ? { plantId: pp.id, plant: pp.nickname || pp.name, latin: (pp.care && pp.care.latinName) || "", how: m.how }
+            : null;
         })
         .filter(Boolean);
       onPatch(item.id, { ai: { summary: r.summary, caution: r.caution || null, matches: resolved, at: now() } });
