@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "13.07-19:20";
+const APP_VERSION = "13.07-19:28";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -1236,8 +1236,9 @@ function MyGarden() {
               const nj = addJournal(openPlant.id, "diagnosis", text, { severity: result.severity });
               update(plants, nj);
             }}
-            onUpdateCare={(care) => {
-              const np = plants.map((x) => (x.id === openPlant.id ? { ...x, care } : x));
+            onUpdateCare={(care, patch) => {
+              const merged = patch || { care };
+              const np = plants.map((x) => (x.id === openPlant.id ? { ...x, ...merged } : x));
               update(np, journal);
               showToast("Паспорт ухода обновлён ✒️");
             }}
@@ -1609,6 +1610,17 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
       const c = await generatePassport(name.trim(), location, spot.trim(), apartment);
       setCare(c);
       setAiFailed(false);
+      // Приводим название к общепринятому имени вида; введённое вручную бытовое имя,
+      // если оно осмысленно и прозвища ещё нет, сохраняем как домашнее имя.
+      const common = (c.commonName || "").trim();
+      if (common) {
+        const typed = name.trim();
+        const norm = (s) => s.toLowerCase().replace(/[«»"'()]/g, "").trim();
+        if (norm(typed) !== norm(common)) {
+          if (!nickname.trim() && typed.length >= 2) setNickname(typed);
+          setName(common);
+        }
+      }
     } catch {
       setAiFailed(true);
       showToast("Садовник не ответил — проверьте связь и попробуйте ещё раз");
@@ -1901,7 +1913,14 @@ function PlantView({ plant, apartment, invText, inventory, spots, onMove, entrie
     setCareBusy(true);
     try {
       const c = await generatePassport(plant.name, plant.location, plant.spot, apartment);
-      onUpdateCare(c);
+      const common = (c.commonName || "").trim();
+      const norm = (s) => (s || "").toLowerCase().replace(/[«»"'()]/g, "").trim();
+      const patch = { care: c };
+      if (common && norm(plant.name) !== norm(common)) {
+        if (!(plant.nickname || "").trim() && plant.name.trim().length >= 2) patch.nickname = plant.name;
+        patch.name = common;
+      }
+      onUpdateCare(c, patch);
     } catch {
       showToast("Садовник задумался — попробуйте ещё раз");
     }
