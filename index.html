@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "13.07-19:43";
+const APP_VERSION = "13.07-19:47";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -1355,7 +1355,32 @@ function MyGarden() {
 }
 
 /* ─────────────────────────  Каталог  ───────────────────────── */
+function buildSubtitleMap(plants) {
+  const byKey = {};
+  plants.forEach((p) => {
+    const key = speciesKey((p.care && p.care.latinName) || "", p.name);
+    if (!key) return;
+    const common = ((p.care && p.care.commonName) || "").trim();
+    const latin = ((p.care && p.care.latinName) || "").trim();
+    if (!byKey[key]) byKey[key] = { commons: [], latin };
+    if (common) byKey[key].commons.push(common);
+    if (latin && !byKey[key].latin) byKey[key].latin = latin;
+  });
+  const map = {};
+  Object.keys(byKey).forEach((key) => {
+    const { commons, latin } = byKey[key];
+    if (commons.length) {
+      // самый короткий commonName как «канонический» для вида (обычно самый чистый)
+      map[key] = commons.slice().sort((a, b) => a.length - b.length)[0];
+    } else {
+      map[key] = latin || "";
+    }
+  });
+  return map;
+}
+
 function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInfo, onOpen, onAdd, onExport, onImportClick, onSettings, backupNudge }) {
+  const subtitleMap = buildSubtitleMap(shown);
   if (total === 0) {
     return (
       <div style={{ textAlign: "center", padding: "70px 20px" }}>
@@ -1423,7 +1448,7 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
                   {p.nickname || p.name}
                 </div>
                 <div style={{ ...serif, fontStyle: "italic", fontSize: 13, color: C.sage }}>
-                  {speciesSubtitle(p)}
+                  {subtitleMap[speciesKey((p.care && p.care.latinName) || "", p.name)] || speciesSubtitle(p)}
                 </div>
                 <div style={{ ...sans, fontSize: 12, color: C.moss, marginTop: 4 }}>
                   {p.location === "balcony" ? "🌤 балкон" : "🏠 дома"}
