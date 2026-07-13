@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "13.07-19:47";
+const APP_VERSION = "13.07-20:11";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -391,6 +391,30 @@ function buildGardenContext(plants, journal) {
     }`;
   });
   return lines.join("\n");
+}
+
+async function auditPlacement(plants, spotChoices, apartment) {
+  const roster = plants
+    .map(
+      (p) =>
+        `- plantId:"${p.id}" ${p.nickname || p.name}${p.care && p.care.latinName ? " (" + p.care.latinName + ")" : ""} — сейчас ${p.location === "balcony" ? "балкон" : "дома"}${p.spot ? ", " + p.spot : ""}; свет по паспорту: ${(p.care && p.care.light) || "?"}`
+    )
+    .join("\n");
+  const places =
+    spotChoices.length > 0
+      ? spotChoices.map((s) => `"${s.spot}"`).join(", ")
+      : "места не заданы";
+  const prompt = `Ты — внимательный садовник. Проверь расстановку домашнего сада и найди растения, которым на ТЕКУЩЕМ месте плохо (мало или слишком много света, риск ожога от прямого солнца, холод/жара, не та влажность).
+Про квартиру: ${apartment}
+Доступные места (переставлять можно ТОЛЬКО сюда, копируй дословно): ${places}
+Растения сада:
+${roster}
+Верни ТОЛЬКО тех, кому стоит сменить место ради заметной пользы. Кому и так хорошо — НЕ включай. Не предлагай переставить на то же место, где растение уже стоит.
+Ответь ТОЛЬКО валидным JSON без markdown:
+{"moves": [{"plantId": "идентификатор из списка", "toSpot": "одно из доступных мест дословно", "reason": "что не так сейчас и чем новое место лучше, 1-2 фразы"}]}
+Если все стоят удачно — moves пустой.`;
+  const text = await askClaude([{ role: "user", content: prompt }], 1600);
+  return parseJsonSalvage(text);
 }
 
 async function suggestPlacement(name, plants, spotChoices, apartment) {
@@ -1120,6 +1144,15 @@ function MyGarden() {
             }}
             onCancel={() => setView("garden")}
             onImport={() => importRef.current && importRef.current.click()}
+            plants={plants}
+            spotChoices={spotChoices}
+            apartment={apartment}
+            onMovePlant={(plantId, loc, spotStr) => {
+              const np = plants.map((x) => (x.id === plantId ? { ...x, location: loc, spot: spotStr } : x));
+              const nj = addJournal(plantId, "event", "Переставлено: " + spotStr + " 🪴");
+              update(np, nj);
+              showToast("Переставлено 🪴");
+            }}
             wallpaper={wallpaper}
             onSetWallpaper={setWallpaperPhoto}
             onClearWallpaper={clearWallpaper}
@@ -3038,7 +3071,25 @@ function StatsView({ plants, journal, onOpen }) {
 }
 
 /* ─────────────────────────  Профиль квартиры  ───────────────────────── */
-function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, wallpaper, onSetWallpaper, onClearWallpaper, syncAvailable, sync, onEnableSync, onConnectSync, onDisableSync }) {
+function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, spotChoices, apartment, onMovePlant, wallpaper, onSetWallpaper, onClearWallpaper, syncAvailable, sync, onEnableSync, onConnectSync, onDisableSync }) {
+  const [auditBusy, setAuditBusy] = useState(false);
+  const [audit, setAudit] = useState(null);
+  const [moved, setMoved] = useState({});
+
+  async function runAudit() {
+    setAuditBusy(true);
+    setAudit(null);
+    try {
+      const r = await auditPlacement(plants || [], spotChoices || [], apartment);
+      setAudit(r.moves || []);
+      setMoved({});
+    } catch {
+      setAudit(null);
+      if (typeof window !== "undefined") { /* тост показывает родитель через onMovePlant недоступен */ }
+    }
+    setAuditBusy(false);
+  }
+
   const wpRef = useRef(null);
   const [connCode, setConnCode] = useState("");
   const [copied, setCopied] = useState(false);
@@ -3184,6 +3235,56 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, wallpaper
         </Btn>
         {!firstRun && <Btn tone="ghost" onClick={onCancel}>Отмена</Btn>}
       </div>
+
+      {!firstRun && (plants || []).length > 0 && (
+        <div style={{ marginTop: 28, paddingTop: 18, borderTop: `1px solid ${C.line}` }}>
+          <h3 style={{ ...serif, fontWeight: 400, fontSize: 18, margin: "0 0 8px" }}>
+            🧭 Оптимальная расстановка
+          </h3>
+          <p style={{ ...sans, fontSize: 13, color: C.moss, margin: "0 0 10px", lineHeight: 1.5 }}>
+            Садовник проверит, кому из растений плохо на нынешнем месте, и предложит переезд.
+          </p>
+          <Btn small tone="water" onClick={runAudit} disabled={auditBusy}>
+            {auditBusy ? "Осматриваю сад…" : "Определить оптимальное местонахождение"}
+          </Btn>
+
+          {audit !== null && (
+            <div className="reveal" style={{ marginTop: 12 }}>
+              {audit.length === 0 ? (
+                <p style={{ ...serif, fontStyle: "italic", color: C.moss, fontSize: 15 }}>
+                  Все растения стоят удачно — переставлять никого не нужно 🌿
+                </p>
+              ) : (
+                audit.map((m, k) => {
+                  const p = (plants || []).find((x) => x.id === m.plantId);
+                  if (!p) return null;
+                  const done = moved[m.plantId];
+                  const target = (spotChoices || []).find((s) => s.spot === m.toSpot);
+                  return (
+                    <div key={k} style={{ background: "#fffef9", border: `1px solid ${C.line}`, borderRadius: 14, padding: 12, marginBottom: 8 }}>
+                      <div style={{ ...serif, fontSize: 16, color: C.ink }}>
+                        {p.nickname || p.name} → {m.toSpot}
+                      </div>
+                      <div style={{ ...sans, fontSize: 13, color: C.moss, margin: "4px 0 8px" }}>{m.reason}</div>
+                      {done ? (
+                        <div style={{ ...sans, fontSize: 13, color: C.sage }}>✓ переставлено</div>
+                      ) : (
+                        <Btn small tone="moss"
+                          onClick={() => {
+                            onMovePlant(m.plantId, target ? target.location : p.location, m.toSpot);
+                            setMoved((mv) => ({ ...mv, [m.plantId]: true }));
+                          }}>
+                          Переставить сюда
+                        </Btn>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {!firstRun && (
         <div style={{ marginTop: 28, paddingTop: 18, borderTop: `1px solid ${C.line}` }}>
