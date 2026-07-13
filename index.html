@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "13.07-19:28";
+const APP_VERSION = "13.07-19:43";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -75,6 +75,14 @@ const daysSince = (iso) => {
 };
 const fmtDate = (iso) =>
   new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+
+/* Подпись под названием: единый ориентир вида — русское название (commonName),
+   иначе латинское. Одинаково для всех растений вида, даже если дублирует заголовок. */
+function speciesSubtitle(p) {
+  const common = ((p.care && p.care.commonName) || "").trim();
+  const latin = ((p.care && p.care.latinName) || "").trim();
+  return common || latin || "";
+}
 
 /* Нормализация латинского имени до «род + вид»: отбрасываем сорт, скобки, пометки.
    "Rosa × hybrida (сорт 'Kardana')" и "Rosa × hybrida (miniature)" → "rosa hybrida" */
@@ -1415,7 +1423,7 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
                   {p.nickname || p.name}
                 </div>
                 <div style={{ ...serif, fontStyle: "italic", fontSize: 13, color: C.sage }}>
-                  {p.nickname ? p.name : p.care?.latinName || ""}
+                  {speciesSubtitle(p)}
                 </div>
                 <div style={{ ...sans, fontSize: 12, color: C.moss, marginTop: 4 }}>
                   {p.location === "balcony" ? "🌤 балкон" : "🏠 дома"}
