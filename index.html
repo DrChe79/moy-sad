@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "13.07-18:59";
+const APP_VERSION = "13.07-19:13";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -75,6 +75,30 @@ const daysSince = (iso) => {
 };
 const fmtDate = (iso) =>
   new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+
+/* Нормализация латинского имени до «род + вид»: отбрасываем сорт, скобки, пометки.
+   "Rosa × hybrida (сорт 'Kardana')" и "Rosa × hybrida (miniature)" → "rosa hybrida" */
+function speciesKey(latin, fallbackName) {
+  let s = (latin || "").toLowerCase();
+  if (!s.trim()) {
+    // нет латинского — ключ по русскому названию, тоже очищенному от сорта/скобок
+    return (fallbackName || "")
+      .toLowerCase()
+      .replace(/[«»"'()].*$/g, "")
+      .replace(/\bсорт\b.*$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  s = s.replace(/\(.*?\)/g, " ");          // убрать содержимое скобок
+  s = s.replace(/['"«»‘’].*?['"«»‘’]/g, " "); // убрать сорт в кавычках
+  s = s.replace(/×/g, " ");                    // знак гибрида
+  // выкинуть служебные пометки
+  s = s.replace(/\b(сорт|cv|var|subsp|ssp|forma|miniature|мини|миниатюрная|hort)\b\.?/g, " ");
+  s = s.replace(/[^a-zа-яё\s]/g, " ");        // прочь пунктуацию
+  const words = s.split(/\s+/).filter(Boolean);
+  // род + вид = первые два значимых слова
+  return words.slice(0, 2).join(" ").trim() || (fallbackName || "").toLowerCase().trim();
+}
 const fmtMonth = (ym) => {
   try {
     return new Date(ym + "-01T00:00:00").toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
@@ -1366,8 +1390,8 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 12 }}>
         {[...shown].sort((a, b) => {
-          const ka = ((a.care && a.care.latinName) || a.name || "").toLowerCase();
-          const kb = ((b.care && b.care.latinName) || b.name || "").toLowerCase();
+          const ka = speciesKey((a.care && a.care.latinName) || "", a.name);
+          const kb = speciesKey((b.care && b.care.latinName) || "", b.name);
           if (ka < kb) return -1;
           if (ka > kb) return 1;
           return new Date(a.addedAt) - new Date(b.addedAt);
@@ -1527,6 +1551,7 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
   const [name, setName] = useState(prefillName || "");
   const [placeHint, setPlaceHint] = useState(null);
   const [placeBusy, setPlaceBusy] = useState(false);
+  const [aiFailed, setAiFailed] = useState(false);
   const [idBusy, setIdBusy] = useState(false);
   const [idNote, setIdNote] = useState("");
   const [photoSrcChoose, setPhotoSrcChoose] = useState(false);
@@ -1583,8 +1608,10 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
     try {
       const c = await generatePassport(name.trim(), location, spot.trim(), apartment);
       setCare(c);
+      setAiFailed(false);
     } catch {
-      showToast("Садовник задумался — попробуйте ещё раз");
+      setAiFailed(true);
+      showToast("Садовник не ответил — проверьте связь и попробуйте ещё раз");
     }
     setBusy(false);
   }
@@ -1723,11 +1750,13 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
             </Btn>
             <Btn tone="ghost" onClick={onCancel}>Отмена</Btn>
           </div>
-          {name.trim() && !busy && (
-            <button onClick={save}
-              style={{ ...sans, background: "none", border: "none", color: C.sage, fontSize: 13, cursor: "pointer", textDecoration: "underline", padding: "10px 6px", margin: "0 -6px" }}>
-              или добавить пока без паспорта — составлю позже из карточки
-            </button>
+          {aiFailed && name.trim() && !busy && (
+            <div style={{ marginTop: 4 }}>
+              <button onClick={save}
+                style={{ ...sans, background: "none", border: "none", color: C.sage, fontSize: 13, cursor: "pointer", textDecoration: "underline", padding: "10px 6px", margin: "0 -6px" }}>
+                добавить без паспорта (составлю позже из карточки)
+              </button>
+            </div>
           )}
         </div>
       ) : (
@@ -1795,23 +1824,15 @@ function PlantView({ plant, apartment, invText, inventory, spots, onMove, entrie
     }
   }
 
-  const pLatin = ((plant.care && plant.care.latinName) || "").toLowerCase().trim();
-  const pName = (plant.name || "").toLowerCase().trim();
+  const pSp = speciesKey((plant.care && plant.care.latinName) || "", plant.name);
   const invMatches = (inventory || [])
     .map((i) => {
       if (!i.ai) return null;
       const list = i.ai.matches || [];
       // 1) точное совпадение по экземпляру
       let m = list.find((x) => x.plantId === plant.id);
-      // 2) по виду: латинское имя вердикта совпадает с латинским именем этого растения
-      if (!m && pLatin) m = list.find((x) => (x.latin || "").toLowerCase().trim() === pLatin);
-      // 3) по названию вида (на случай пустого латинского)
-      if (!m && pName) {
-        m = list.find((x) => {
-          const xn = (x.plant || "").toLowerCase().trim();
-          return xn === pName || xn.includes(pName) || pName.includes(xn);
-        });
-      }
+      // 2) по нормализованному виду (сорт/скобки не мешают)
+      if (!m && pSp) m = list.find((x) => (x.sp || speciesKey(x.latin, x.plant)) === pSp);
       return m ? { item: i, how: m.how } : null;
     })
     .filter(Boolean);
@@ -2629,7 +2650,7 @@ function InventoryView({ inventory, plants, journal, apartment, onAdd, onPatch, 
               plants.find((x) => norm(x.name).includes(q) || q.includes(norm(x.name)));
           }
           return pp
-            ? { plantId: pp.id, plant: pp.nickname || pp.name, latin: (pp.care && pp.care.latinName) || "", how: m.how }
+            ? { plantId: pp.id, plant: pp.nickname || pp.name, sp: speciesKey((pp.care && pp.care.latinName) || "", pp.name), how: m.how }
             : null;
         })
         .filter(Boolean);
