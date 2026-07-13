@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "13.07-19:13";
+const APP_VERSION = "13.07-19:20";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -1825,6 +1825,8 @@ function PlantView({ plant, apartment, invText, inventory, spots, onMove, entrie
   }
 
   const pSp = speciesKey((plant.care && plant.care.latinName) || "", plant.name);
+  const pNm = (plant.nickname || plant.name || "").toLowerCase().trim();
+  const pName = (plant.name || "").toLowerCase().trim();
   const invMatches = (inventory || [])
     .map((i) => {
       if (!i.ai) return null;
@@ -1832,7 +1834,14 @@ function PlantView({ plant, apartment, invText, inventory, spots, onMove, entrie
       // 1) точное совпадение по экземпляру
       let m = list.find((x) => x.plantId === plant.id);
       // 2) по нормализованному виду (сорт/скобки не мешают)
-      if (!m && pSp) m = list.find((x) => (x.sp || speciesKey(x.latin, x.plant)) === pSp);
+      if (!m && pSp) m = list.find((x) => (x.sp || speciesKey(x.latin || "", x.plant || "")) === pSp);
+      // 3) по имени растения — для самых старых вердиктов, где вид не сохранялся
+      if (!m && pName) {
+        m = list.find((x) => {
+          const xn = (x.plant || "").toLowerCase().trim();
+          return xn && (xn === pNm || xn === pName || xn.includes(pName) || pName.includes(xn));
+        });
+      }
       return m ? { item: i, how: m.how } : null;
     })
     .filter(Boolean);
