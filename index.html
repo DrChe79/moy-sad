@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-16:09";
+const APP_VERSION = "14.07-16:22";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -79,6 +79,16 @@ const isSummer = () => {
 const daysSince = (iso) => {
   if (!iso) return null;
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+};
+/* Разница в КАЛЕНДАРНЫХ днях (игнорируя время суток): задачи «созревают» с началом дня,
+   поэтому утром уже видно всё, что назрело на сегодня, а не по истечении полных суток. */
+const calDaysSince = (iso) => {
+  if (!iso) return null;
+  const then = new Date(iso);
+  const a = new Date(then.getFullYear(), then.getMonth(), then.getDate());
+  const now = new Date();
+  const b = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((b - a) / 86400000);
 };
 const fmtDate = (iso) =>
   new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
@@ -1226,8 +1236,8 @@ function MyGarden() {
   function dueInfo(p) {
     const interval = isSummer() ? p.care?.wateringSummer : p.care?.wateringWinter;
     const neverWatered = !p.lastWatered;           // ни разу не поливалось в приложении
-    const daysHere = daysSince(p.addedAt);          // сколько в саду
-    const dw = daysSince(p.lastWatered || p.addedAt);
+    const daysHere = daysSince(p.addedAt);          // сколько в саду (фактически)
+    const dw = calDaysSince(p.lastWatered || p.addedAt);  // для задач — по календарным дням
     // Новичок, которого ещё ни разу не отметили политым, — сразу в напоминания:
     // если есть интервал и уже прошёл, ИЛИ паспорта нет и растение живёт в саду хотя бы день.
     const newcomerDue = neverWatered && (
@@ -1237,17 +1247,17 @@ function MyGarden() {
     const waterDue = (interval && dw !== null && dw >= interval) || newcomerDue;
     let feedDue = false;
     if (isSummer() && p.care?.feedIntervalSummerDays) {
-      const df = daysSince(p.lastFed || p.addedAt);
+      const df = calDaysSince(p.lastFed || p.addedAt);
       feedDue = df !== null && df >= p.care.feedIntervalSummerDays;
     }
     let mistDue = false;
     if (p.care?.mistIntervalDays) {
-      const dm = daysSince(p.lastMisted || p.addedAt);
+      const dm = calDaysSince(p.lastMisted || p.addedAt);
       mistDue = dm !== null && dm >= p.care.mistIntervalDays;
     }
     let wipeDue = false;
     if (p.care?.wipeIntervalDays) {
-      const dwp = daysSince(p.lastWiped || p.addedAt);
+      const dwp = calDaysSince(p.lastWiped || p.addedAt);
       wipeDue = dwp !== null && dwp >= p.care.wipeIntervalDays;
     }
     return { waterDue, feedDue, mistDue, wipeDue, dw, interval, neverWatered, daysHere };
