@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-12:10";
+const APP_VERSION = "14.07-12:14";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -963,12 +963,11 @@ function MyGarden() {
     })();
   }, [loaded]);
 
-  useEffect(() => {
-    if (!loaded) return;
-    const city = (profile && profile.city || "").trim();
+  async function loadWeather(cityRaw, force) {
+    const city = (cityRaw || "").trim();
     if (!city) { setWeather(null); return; }
-    (async () => {
-      const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10);
+    if (!force) {
       try {
         const r = await appStorage.get("garden:weather");
         const cached = JSON.parse(r.value);
@@ -977,13 +976,18 @@ function MyGarden() {
           return;
         }
       } catch (e) { /* нет кэша */ }
-      try {
-        const geo = await geocodeCity(city);
-        const w = await fetchWeather(geo.lat, geo.lon);
-        setWeather(w);
-        try { await appStorage.set("garden:weather", JSON.stringify({ date: today, city, w })); } catch (e) {}
-      } catch (e) { setWeather(null); /* город не найден или сеть — просто без погоды */ }
-    })();
+    }
+    try {
+      const geo = await geocodeCity(city);
+      const w = await fetchWeather(geo.lat, geo.lon);
+      setWeather(w);
+      try { await appStorage.set("garden:weather", JSON.stringify({ date: today, city, w })); } catch (e) {}
+    } catch (e) { setWeather(null); /* город не найден или сеть — просто без погоды */ }
+  }
+
+  useEffect(() => {
+    if (!loaded) return;
+    loadWeather(profile && profile.city);
   }, [loaded, profile && profile.city]);
 
   async function persist(nextPlants, nextJournal, nextWishlist, nextProfile, nextNeeds, nextInventory) {
@@ -1150,8 +1154,10 @@ function MyGarden() {
   }
 
   function saveProfile(p) {
+    const cityChanged = !profile || (profile.city || "") !== (p.city || "");
     setProfile(p);
     persist(plants, journal, wishlist, p, needs, inventory);
+    if (cityChanged) loadWeather(p.city, true);
   }
 
   const apartment = useMemo(() => apartmentText(profile), [profile]);
