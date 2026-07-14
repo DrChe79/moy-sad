@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-17:18";
+const APP_VERSION = "14.07-17:23";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -2594,27 +2594,7 @@ function PlantView({ plant, apartment, invText, inventory, allPlants, onOpenPlan
           <div style={{ ...sans, fontSize: 13, color: C.moss, marginTop: 6 }}>
             {plant.location === "balcony" ? "🌤 балкон" : "🏠 дома"}
             {plant.spot ? ` · ${plant.spot}` : ""} · {plant.ownedSince ? `у вас с ${fmtMonth(plant.ownedSince)}` : `в каталоге с ${fmtDate(plant.addedAt)}`}
-            {" · "}
-            <button onClick={() => setMoving(!moving)}
-              style={{ ...sans, background: "none", border: "none", color: C.water, fontSize: 13, cursor: "pointer", textDecoration: "underline", padding: "7px 6px", margin: "-7px -6px" }}>
-              переставить
-            </button>
-            {" · "}
-            <button onClick={startEdit}
-              style={{ ...sans, background: "none", border: "none", color: C.water, fontSize: 13, cursor: "pointer", textDecoration: "underline", padding: "7px 6px", margin: "-7px -6px" }}>
-              править
-            </button>
           </div>
-          {moving && (
-            <div className="reveal" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-              {(spots || []).map((s) => (
-                <Chip key={s.spot} active={plant.spot === s.spot}
-                  onClick={() => { onMove(s.location, s.spot); setMoving(false); }}>
-                  {s.label}
-                </Chip>
-              ))}
-            </div>
-          )}
           {editing && (
             <div className="reveal" style={{ marginTop: 10, background: "#fffef9", border: `1px solid ${C.line}`, borderRadius: 14, padding: 12, maxWidth: 380 }}>
               <Field label="Название">
@@ -2667,14 +2647,26 @@ function PlantView({ plant, apartment, invText, inventory, allPlants, onOpenPlan
           <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
             <Btn small tone="water" onClick={onWater}>💧 Полить</Btn>
             <Btn small tone="moss" onClick={onFeed}>🌿 Подкормить</Btn>
+            <Btn small tone="ghost" onClick={() => setMoving(!moving)}>🪴 Переставить</Btn>
             <Btn small tone="ghost" onClick={() => setDiagSrc(!diagSrc)} disabled={diagBusy}>
               {diagBusy ? "Осматриваю…" : "🔍 Осмотр по фото"}
             </Btn>
+            <Btn small tone="ghost" onClick={startEdit}>✎ Править</Btn>
             <input ref={diagRef} type="file" accept="image/*" style={{ display: "none" }}
               onChange={(e) => e.target.files[0] && handleDiagPhoto(e.target.files[0])} />
             <input ref={diagCamRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }}
               onChange={(e) => e.target.files[0] && handleDiagPhoto(e.target.files[0])} />
           </div>
+          {moving && (
+            <div className="reveal" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+              {(spots || []).map((s) => (
+                <Chip key={s.spot} active={plant.spot === s.spot}
+                  onClick={() => { onMove(s.location, s.spot); setMoving(false); }}>
+                  {s.label}
+                </Chip>
+              ))}
+            </div>
+          )}
           {diagSrc && !diagBusy && (
             <div className="reveal" style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
               <Chip onClick={() => diagCamRef.current && diagCamRef.current.click()}>📷 Сфотографировать</Chip>
