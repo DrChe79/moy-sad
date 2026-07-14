@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-15:46";
+const APP_VERSION = "14.07-16:04";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -76,38 +76,6 @@ const isSummer = () => {
   return m >= 4 && m <= 9;
 };
 
-/* Сезонные заметки заботы: по месяцу и составу сада. Возвращает 0-2 карточки. */
-function seasonalNotes(plants) {
-  const m = new Date().getMonth() + 1;
-  const hasBalcony = plants.some((p) => p.location === "balcony");
-  const hasHumid = plants.some((p) => p.care && p.care.mistIntervalDays);
-  const out = [];
-  // Весна (март-апрель): пробуждение
-  if (m === 3 || m === 4) {
-    out.push({ icon: "🌱", text: "Весна — сад просыпается: возобновляйте подкормки, а кому тесно в горшке — самое время пересадить." });
-  }
-  // Начало лета (май): вынос на балкон
-  else if (m === 5 && hasBalcony) {
-    out.push({ icon: "☀️", text: "Устанавливается тепло — балконные растения оживают, но от резкого прямого солнца притеняйте первые дни, чтобы не обожглись." });
-  }
-  // Разгар лета (июль-август): жара
-  else if (m === 7 || m === 8) {
-    out.push({ icon: "💧", text: "Разгар лета — в жару земля сохнет быстрее, чаще заглядывайте в поддоны и проверяйте, не пора ли полить." });
-  }
-  // Ранняя осень (сентябрь): сбор урожая тепла
-  else if (m === 9) {
-    out.push({ icon: "🍂", text: "Ранняя осень — сокращайте подкормки, растения готовятся к отдыху. Следите за первыми холодными ночами." });
-  }
-  // Отопительный сезон (октябрь-ноябрь): сухой воздух
-  else if ((m === 10 || m === 11) && hasHumid) {
-    out.push({ icon: "🔥", text: "Включается отопление — воздух становится сухим, влаголюбивым тяжело. Чаще опрыскивайте или отставьте от батарей." });
-  }
-  // Зима (декабрь-февраль): покой
-  else if (m === 12 || m === 1 || m === 2) {
-    out.push({ icon: "❄️", text: "Зима — период покоя: света мало, поливайте реже и не подкармливайте, берегите от холодных сквозняков у окон." });
-  }
-  return out;
-}
 const daysSince = (iso) => {
   if (!iso) return null;
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
@@ -1490,8 +1458,8 @@ function MyGarden() {
             onWater={waterPlant} onFeed={feedPlant}
             onMist={mistPlant} onWipe={wipePlant}
             weatherHintsList={weather ? weatherHints(weather, plants.some((p) => p.location === "balcony")) : []}
-            seasonalList={seasonalNotes(plants)}
             quarantineList={plants.filter((p) => {
+              if (p.origin === "offshoot") return false;     // отростку своего карантин не нужен
               const d = daysSince(p.addedAt);
               if (d === null || d > 14) return false;
               // если указано «у вас с …» и это прошлый месяц или раньше — растение не новичок
@@ -1565,6 +1533,8 @@ function MyGarden() {
             apartment={apartment}
             invText={invText}
             inventory={inventory}
+            allPlants={plants}
+            onOpenPlant={(id) => { setOpenId(id); }}
             spots={spotChoices}
             onMove={(loc, spotStr) => {
               const np = plants.map((x) => (x.id === openPlant.id ? { ...x, location: loc, spot: spotStr } : x));
@@ -1837,7 +1807,7 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
 }
 
 /* ─────────────────────────  Сегодня  ───────────────────────── */
-function TodayView({ dueList, balconyAutumn, plants, dueInfoFn, fact, weatherHintsList, seasonalList, quarantineList, onVacation, onWater, onFeed, onMist, onWipe, onOpen }) {
+function TodayView({ dueList, balconyAutumn, plants, dueInfoFn, fact, weatherHintsList, quarantineList, onVacation, onWater, onFeed, onMist, onWipe, onOpen }) {
   const factPlant = fact && plants.find((p) => p.id === fact.plantId);
   const balconyPlants = plants.filter((p) => p.location === "balcony");
   const schedule = plants
@@ -1900,17 +1870,6 @@ function TodayView({ dueList, balconyAutumn, plants, dueInfoFn, fact, weatherHin
               </div>
             );
           })}
-        </div>
-      )}
-
-      {seasonalList && seasonalList.length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          {seasonalList.map((h, k) => (
-            <div key={k} style={{ display: "flex", gap: 10, alignItems: "flex-start", background: C.sageSoft + "77", border: `1px solid ${C.line}`, borderRadius: 14, padding: "11px 14px", marginBottom: 8 }}>
-              <span style={{ fontSize: 18, lineHeight: 1.3 }}>{h.icon}</span>
-              <span style={{ ...sans, fontSize: 14, color: C.ink, lineHeight: 1.45 }}>{h.text}</span>
-            </div>
-          ))}
         </div>
       )}
 
@@ -2034,6 +1993,8 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
   }
   const [nickname, setNickname] = useState("");
   const [ownedSince, setOwnedSince] = useState("");
+  const [origin, setOrigin] = useState("bought");
+  const [parentId, setParentId] = useState("");
   const [location, setLocation] = useState("home");
   const [spot, setSpot] = useState("");
   const [photo, setPhoto] = useState(null);
@@ -2084,6 +2045,8 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
       name: name.trim(),
       nickname: nickname.trim(),
       ownedSince: ownedSince || null,
+      origin,
+      parentId: origin === "offshoot" && parentId ? parentId : null,
       location,
       spot: spot.trim(),
       photo,
@@ -2147,6 +2110,28 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
       </Field>
       <Field label="Домашнее имя (если есть)">
         <input style={inputStyle} value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="Моня" />
+      </Field>
+      <Field label="Откуда растение">
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Chip active={origin === "bought"} onClick={() => { setOrigin("bought"); setParentId(""); }}>🛍 Куплено / подарено</Chip>
+          <Chip active={origin === "offshoot"} onClick={() => setOrigin("offshoot")}>🌱 Отросток своего</Chip>
+        </div>
+        {origin === "offshoot" && plants.length > 0 && (
+          <div className="reveal" style={{ marginTop: 10 }}>
+            <div style={{ ...sans, fontSize: 13, color: C.moss, marginBottom: 6 }}>От какого растения? (по желанию)</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {plants.map((pp) => (
+                <Chip key={pp.id} active={parentId === pp.id}
+                  onClick={() => setParentId(parentId === pp.id ? "" : pp.id)}>
+                  {pp.nickname || pp.name}
+                </Chip>
+              ))}
+            </div>
+          </div>
+        )}
+        <div style={{ ...sans, fontSize: 12, color: C.sage, marginTop: 6 }}>
+          Купленному предложим карантин на пару недель; отростку своего он не нужен.
+        </div>
       </Field>
       <Field label="Как давно оно у вас (примерно, необязательно)">
         <input type="month" style={inputStyle} value={ownedSince}
@@ -2267,7 +2252,9 @@ function PassportGrid({ care }) {
 }
 
 /* ─────────────────────────  Карточка растения  ───────────────────────── */
-function PlantView({ plant, apartment, invText, inventory, spots, onMove, entries, dueInfo, onBack, onWater, onFeed, onDelete, onNote, onDeleteEntry, onDiagnosis, onUpdateCare, onEdit, onGalleryAdd, onGalleryDelete, needs, onAddNeed, onBuyNeed, onRemoveNeed, showToast }) {
+function PlantView({ plant, apartment, invText, inventory, allPlants, onOpenPlant, spots, onMove, entries, dueInfo, onBack, onWater, onFeed, onDelete, onNote, onDeleteEntry, onDiagnosis, onUpdateCare, onEdit, onGalleryAdd, onGalleryDelete, needs, onAddNeed, onBuyNeed, onRemoveNeed, showToast }) {
+  const parent = plant.parentId && (allPlants || []).find((x) => x.id === plant.parentId);
+  const children = (allPlants || []).filter((x) => x.parentId === plant.id);
   const [note, setNote] = useState("");
   const [needText, setNeedText] = useState("");
   const [moving, setMoving] = useState(false);
@@ -2420,6 +2407,34 @@ function PlantView({ plant, apartment, invText, inventory, spots, onMove, entrie
           <div style={{ ...serif, fontStyle: "italic", color: C.sage, fontSize: 15 }}>
             {plant.nickname ? `${plant.name} · ` : ""}{plant.care?.latinName}
           </div>
+          {(parent || children.length > 0) && (
+            <div style={{ ...sans, fontSize: 13, color: C.moss, marginTop: 4 }}>
+              {parent && (
+                <span>
+                  🌱 отросток{" "}
+                  <button onClick={() => onOpenPlant(parent.id)}
+                    style={{ ...serif, background: "none", border: "none", color: C.moss, cursor: "pointer", padding: 0, fontSize: 14, textDecoration: "underline" }}>
+                    {parent.nickname || parent.name}
+                  </button>
+                </span>
+              )}
+              {parent && children.length > 0 && " · "}
+              {children.length > 0 && (
+                <span>
+                  детки:{" "}
+                  {children.map((c, k) => (
+                    <React.Fragment key={c.id}>
+                      {k > 0 && ", "}
+                      <button onClick={() => onOpenPlant(c.id)}
+                        style={{ ...serif, background: "none", border: "none", color: C.moss, cursor: "pointer", padding: 0, fontSize: 14, textDecoration: "underline" }}>
+                        {c.nickname || c.name}
+                      </button>
+                    </React.Fragment>
+                  ))}
+                </span>
+              )}
+            </div>
+          )}
           <div style={{ ...sans, fontSize: 13, color: C.moss, marginTop: 6 }}>
             {plant.location === "balcony" ? "🌤 балкон" : "🏠 дома"}
             {plant.spot ? ` · ${plant.spot}` : ""} · {plant.ownedSince ? `у вас с ${fmtMonth(plant.ownedSince)}` : `в каталоге с ${fmtDate(plant.addedAt)}`}
