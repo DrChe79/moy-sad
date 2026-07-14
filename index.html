@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-10:57";
+const APP_VERSION = "14.07-11:01";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -3288,9 +3288,14 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, s
               </label>
               {spots.length > 1 && (
                 <button
-                  onClick={() => setSpots(spots.filter((x) => x.id !== s.id))}
+                  onClick={() => {
+                    const nm = s.label.trim();
+                    if (!nm || window.confirm(`Убрать место «${nm}» из квартиры? Растения не удалятся — у них сохранится текущая подпись места.`)) {
+                      setSpots(spots.filter((x) => x.id !== s.id));
+                    }
+                  }}
                   title="убрать место"
-                  style={{ ...sans, background: "none", border: "none", color: C.sage, cursor: "pointer", fontSize: 17 }}
+                  style={{ ...sans, background: "none", border: "none", color: C.sage, cursor: "pointer", fontSize: 17, padding: "6px 8px", margin: "-6px -4px" }}
                 >
                   ×
                 </button>
