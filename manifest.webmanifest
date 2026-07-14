@@ -1,0 +1,17 @@
+{
+  "name": "Мой сад",
+  "short_name": "Мой сад",
+  "description": "Каталог комнатных растений с уходом, напоминаниями и садовником-консультантом",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f6ef",
+  "theme_color": "#f7f6ef",
+  "lang": "ru",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

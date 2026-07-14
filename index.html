@@ -7,6 +7,12 @@
 <meta name="theme-color" content="#f7f6ef" />
 <meta name="description" content="Каталог комнатных растений с уходом, напоминаниями и садовником-консультантом" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌿</text></svg>" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="icon-180.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Мой сад" />
+<meta name="mobile-web-app-capable" content="yes" />
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.4/babel.min.js"></script>
@@ -58,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-11:01";
+const APP_VERSION = "14.07-11:31";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -154,16 +160,34 @@ function compressImage(file, maxSide, quality) {
 /* ─────────────────────────  Синхронизация между устройствами  ───────────────────────── */
 const SYNC_BASE = PROXY_URL;
 const GLOBAL_CSS = `
-button{transition:transform .12s ease, opacity .12s ease}
+button{transition:transform .12s ease, opacity .12s ease, background .15s ease, box-shadow .15s ease}
 button:active{transform:scale(.96)}
 button:focus-visible{outline:2px solid ${C.moss};outline-offset:2px;border-radius:8px}
 input:focus,select:focus,textarea:focus{border-color:${C.moss} !important;box-shadow:0 0 0 3px rgba(125,155,118,.22)}
 @keyframes gDown{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
 @keyframes gUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes gView{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes gPulse{0%{transform:scale(1)}40%{transform:scale(1.12)}100%{transform:scale(1)}}
+@keyframes gFloat{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-6px) rotate(2deg)}}
 .reveal{animation:gDown .18s ease}
 .toastin{animation:gUp .22s ease}
+.viewin{animation:gView .26s ease}
+.leaf-float{animation:gFloat 5s ease-in-out infinite;transform-origin:center}
+.card-soft{box-shadow:0 1px 2px rgba(46,68,51,.04)}
+.card-soft:hover{box-shadow:0 4px 14px rgba(46,68,51,.10)}
 @media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
 `;
+
+/* Мягкое акварельное пятно для пустых экранов и акцентов */
+function Blob({ size = 120, color, style }) {
+  const c = color || C.sageSoft;
+  return (
+    <svg width={size} height={size} viewBox="0 0 120 120" className="leaf-float" style={style} aria-hidden="true">
+      <path fill={c} opacity="0.7" d="M60 8c20 2 44 14 48 38s-10 46-30 56-52 8-64-10S6 42 22 26 40 6 60 8z" />
+      <path fill={c} opacity="0.45" d="M64 24c14 0 30 12 30 32s-12 38-32 38-34-16-32-38 20-32 34-32z" />
+    </svg>
+  );
+}
 
 function genSyncCode() {
   const abc = "abcdefghjkmnpqrstuvwxyz23456789";
@@ -335,6 +359,8 @@ async function generatePassport(name, location, spot, apartment) {
  "wateringWinter": число_дней_между_поливами_зимой,
  "wateringNote": "как поливать, 1 фраза",
  "humidity": "требования к влажности, 1 фраза",
+ "mistIntervalDays": число_дней_между_опрыскиваниями_или_null_если_опрыскивание_не_нужно,
+ "wipeIntervalDays": число_дней_между_протираниями_листьев_или_null_если_листья_мелкие_и_протирать_не_нужно,
  "feedIntervalSummerDays": число_дней_между_подкормками_в_сезон_роста_или_null,
  "feeding": "чем и когда подкармливать, 1 фраза",
  "repotting": "когда пересаживать, 1 фраза",
@@ -342,7 +368,8 @@ async function generatePassport(name, location, spot, apartment) {
  "difficulty": "простое | среднее | капризное",
  "minTempC": минимальная_безопасная_температура_числом,
  "tip": "один тёплый дружеский совет об этом растении, 1-2 фразы"
-}`;
+}
+Про mistIntervalDays: указывай число только для влаголюбивых (тропические, папоротники, калатеи); для суккулентов, кактусов и сухолюбивых — null. Про wipeIntervalDays: указывай число для растений с крупными гладкими листьями (фикусы, монстеры, шефлеры), которым идёт протирка от пыли; для мелколистных, опушённых и суккулентов — null.`;
   const text = await askClaude([{ role: "user", content: prompt }]);
   return parseJson(text);
 }
@@ -1080,6 +1107,18 @@ function MyGarden() {
     update(np, nj);
     showToast(`${p.nickname || p.name} подкормлено 🌿`);
   }
+  function mistPlant(p) {
+    const np = plants.map((x) => (x.id === p.id ? { ...x, lastMisted: now() } : x));
+    const nj = addJournal(p.id, "event", "Опрыскивание 💦");
+    update(np, nj);
+    showToast(`${p.nickname || p.name} опрыскано 💦`);
+  }
+  function wipePlant(p) {
+    const np = plants.map((x) => (x.id === p.id ? { ...x, lastWiped: now() } : x));
+    const nj = addJournal(p.id, "event", "Протёрты листья ✨");
+    update(np, nj);
+    showToast(`${p.nickname || p.name} — листья протёрты ✨`);
+  }
   function deletePlant(p) {
     if (!window.confirm(`Убрать «${p.name}» из сада? Дневник растения тоже удалится.`)) return;
     const np = plants.filter((x) => x.id !== p.id);
@@ -1107,14 +1146,24 @@ function MyGarden() {
       const df = daysSince(p.lastFed || p.addedAt);
       feedDue = df !== null && df >= p.care.feedIntervalSummerDays;
     }
-    return { waterDue, feedDue, dw, interval, neverWatered, daysHere };
+    let mistDue = false;
+    if (p.care?.mistIntervalDays) {
+      const dm = daysSince(p.lastMisted || p.addedAt);
+      mistDue = dm !== null && dm >= p.care.mistIntervalDays;
+    }
+    let wipeDue = false;
+    if (p.care?.wipeIntervalDays) {
+      const dwp = daysSince(p.lastWiped || p.addedAt);
+      wipeDue = dwp !== null && dwp >= p.care.wipeIntervalDays;
+    }
+    return { waterDue, feedDue, mistDue, wipeDue, dw, interval, neverWatered, daysHere };
   }
 
   const dueList = useMemo(
     () =>
       plants
         .map((p) => ({ p, ...dueInfo(p) }))
-        .filter((x) => x.waterDue || x.feedDue),
+        .filter((x) => x.waterDue || x.feedDue || x.mistDue || x.wipeDue),
     [plants]
   );
 
@@ -1220,6 +1269,7 @@ function MyGarden() {
             ⚙️ ИИ-функции появятся после настройки прокси — см. инструкцию. Каталог и напоминания работают уже сейчас.
           </div>
         )}
+        <div key={view} className="viewin">
         {!profile || view === "setup" ? (
           <ProfileSetup
             profile={profile}
@@ -1274,6 +1324,7 @@ function MyGarden() {
             fact={fact}
             onVacation={() => setView("vacation")}
             onWater={waterPlant} onFeed={feedPlant}
+            onMist={mistPlant} onWipe={wipePlant}
             onOpen={(id) => { setOpenId(id); setView("plant"); }} />
         )}
         {view === "add" && (
@@ -1405,6 +1456,7 @@ function MyGarden() {
         {view === "chat" && <ChatView plants={plants} journal={journal} apartment={apartment} invText={invText} />}
         </>
         )}
+        </div>
       </main>
 
       {profile && (
@@ -1556,10 +1608,11 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
             <button
               key={p.id}
               onClick={() => onOpen(p.id)}
+              className="card-soft"
               style={{
                 textAlign: "left", background: "#fffef9",
                 border: d.waterDue ? `1.5px solid ${C.water}` : `1px solid ${C.line}`,
-                boxShadow: d.waterDue ? `0 0 0 3px ${C.waterSoft}` : "none",
+                boxShadow: d.waterDue ? `0 0 0 3px ${C.waterSoft}` : undefined,
                 borderRadius: 16, padding: 12, cursor: "pointer", display: "flex", gap: 12,
               }}
             >
@@ -1608,7 +1661,7 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
 }
 
 /* ─────────────────────────  Сегодня  ───────────────────────── */
-function TodayView({ dueList, balconyAutumn, plants, dueInfoFn, fact, onVacation, onWater, onFeed, onOpen }) {
+function TodayView({ dueList, balconyAutumn, plants, dueInfoFn, fact, onVacation, onWater, onFeed, onMist, onWipe, onOpen }) {
   const factPlant = fact && plants.find((p) => p.id === fact.plantId);
   const balconyPlants = plants.filter((p) => p.location === "balcony");
   const schedule = plants
@@ -1658,32 +1711,42 @@ function TodayView({ dueList, balconyAutumn, plants, dueInfoFn, fact, onVacation
       )}
 
       {dueList.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "50px 20px" }}>
-          <div style={{ fontSize: 40 }}>🌸</div>
-          <p style={{ ...serif, fontStyle: "italic", color: C.moss, fontSize: 17, marginTop: 10 }}>
+        <div style={{ textAlign: "center", padding: "44px 20px" }}>
+          <div style={{ position: "relative", display: "inline-block" }}>
+            <Blob size={110} color={C.blossomSoft} />
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 38 }}>🌸</div>
+          </div>
+          <p style={{ ...serif, fontStyle: "italic", color: C.moss, fontSize: 17, marginTop: 8 }}>
             Все напоены и довольны. Сад шлёт привет.
           </p>
         </div>
       ) : (
-        dueList.map(({ p, waterDue, feedDue, dw, interval, neverWatered }) => (
-          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, background: "#fffef9", border: `1px solid ${C.line}`, borderRadius: 16, padding: 12, marginBottom: 10 }}>
+        dueList.map(({ p, waterDue, feedDue, mistDue, wipeDue, dw, interval, neverWatered }) => {
+          const tasks = [];
+          if (waterDue) tasks.push(neverWatered ? "новичок в саду — полить в первый раз" : `хочет пить — ${dw} дн. без полива (норма ${interval})`);
+          if (feedDue) tasks.push("ждёт подкормки");
+          if (mistDue) tasks.push("пора опрыскать");
+          if (wipeDue) tasks.push("протереть листья от пыли");
+          return (
+          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, background: "#fffef9", border: `1px solid ${C.line}`, borderRadius: 16, padding: 12, marginBottom: 10, flexWrap: "wrap" }}>
             <button onClick={() => onOpen(p.id)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
               <PlantThumb plant={p} size={54} />
             </button>
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ flex: 1, minWidth: 120 }}>
               <div style={{ ...serif, fontSize: 16 }}>{p.nickname || p.name}</div>
               <div style={{ ...sans, fontSize: 13, color: C.moss }}>
-                {waterDue && (neverWatered
-                  ? "новичок в саду — полить в первый раз"
-                  : `хочет пить — ${dw} дн. без полива (норма ${interval})`)}
-                {waterDue && feedDue && " · "}
-                {feedDue && "ждёт подкормки"}
+                {tasks.join(" · ")}
               </div>
             </div>
-            {waterDue && <Btn small tone="water" onClick={() => onWater(p)}>Полить</Btn>}
-            {feedDue && <Btn small tone="moss" onClick={() => onFeed(p)}>Подкормить</Btn>}
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {waterDue && <Btn small tone="water" onClick={() => onWater(p)}>Полить</Btn>}
+              {feedDue && <Btn small tone="moss" onClick={() => onFeed(p)}>Подкормить</Btn>}
+              {mistDue && <Btn small tone="water" onClick={() => onMist(p)}>Опрыскать</Btn>}
+              {wipeDue && <Btn small tone="ghost" onClick={() => onWipe(p)}>Протереть</Btn>}
+            </div>
           </div>
-        ))
+          );
+        })
       )}
 
       {plants.length > 0 && (
@@ -2768,9 +2831,12 @@ function NeedsView({ needs, plants, journal, apartment, invText, onAdd, onBuy, o
       </div>
 
       {needs.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "36px 20px" }}>
-          <div style={{ fontSize: 36 }}>🧺</div>
-          <p style={{ ...serif, fontStyle: "italic", color: C.sage, fontSize: 15, marginTop: 8 }}>
+        <div style={{ textAlign: "center", padding: "32px 20px" }}>
+          <div style={{ position: "relative", display: "inline-block" }}>
+            <Blob size={96} color={C.waterSoft} />
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32 }}>🧺</div>
+          </div>
+          <p style={{ ...serif, fontStyle: "italic", color: C.sage, fontSize: 15, marginTop: 6 }}>
             Список пуст. Записывайте нужное прямо из карточек растений — оно появится здесь.
           </p>
         </div>
@@ -2896,8 +2962,11 @@ function InventoryView({ inventory, plants, journal, apartment, onAdd, onPatch, 
 
       {inventory.length === 0 ? (
         <div style={{ textAlign: "center", padding: "30px 20px" }}>
-          <div style={{ fontSize: 36 }}>🧰</div>
-          <p style={{ ...serif, fontStyle: "italic", color: C.sage, fontSize: 15, marginTop: 8 }}>
+          <div style={{ position: "relative", display: "inline-block" }}>
+            <Blob size={96} color={C.sageSoft} />
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32 }}>🧰</div>
+          </div>
+          <p style={{ ...serif, fontStyle: "italic", color: C.sage, fontSize: 15, marginTop: 6 }}>
             Полка пока пуста. Всё купленное из «Нужного» будет появляться здесь само.
           </p>
         </div>
