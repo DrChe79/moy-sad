@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-12:24";
+const APP_VERSION = "14.07-12:29";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -1255,25 +1255,53 @@ function MyGarden() {
 
   /* ── экспорт / импорт ── */
   function exportGarden() {
+    const data = JSON.stringify({ plants, journal, wishlist, profile, needs, inventory }, null, 2);
+    const fname = "мой-сад.json";
+
+    // Способ 1: скачивание через Blob URL
     try {
-      const data = JSON.stringify({ plants, journal, wishlist, profile, needs, inventory }, null, 2);
       const blob = new Blob([data], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "мой-сад.json";
+      a.download = fname;
       a.rel = "noopener";
-      document.body.appendChild(a); // некоторые браузеры игнорируют click() у ссылки вне DOM
+      document.body.appendChild(a);
       a.click();
       setTimeout(() => {
-        document.body.removeChild(a);
+        try { document.body.removeChild(a); } catch (e) {}
         URL.revokeObjectURL(url);
       }, 1500);
       try { localStorage.setItem("garden:lastBackup", String(Date.now())); setLastBackup(Date.now()); } catch (e) {}
       showToast("Копия сада скачана 💾");
-    } catch (e) {
-      showToast("Не удалось скачать — попробуйте из браузера, не из установленного приложения");
-    }
+      return;
+    } catch (e) { /* пробуем следующий способ */ }
+
+    // Способ 2: скачивание через data-URL
+    try {
+      const a = document.createElement("a");
+      a.href = "data:application/json;charset=utf-8," + encodeURIComponent(data);
+      a.download = fname;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { try { document.body.removeChild(a); } catch (e) {} }, 1500);
+      showToast("Копия сада скачана 💾");
+      return;
+    } catch (e) { /* последний способ */ }
+
+    // Способ 3: открыть копию в новой вкладке — сохранить вручную
+    try {
+      const w = window.open("", "_blank");
+      if (w) {
+        w.document.write("<pre style='white-space:pre-wrap;word-break:break-all;font-family:monospace;padding:16px'>" +
+          data.replace(/</g, "&lt;") + "</pre>");
+        w.document.title = fname;
+        showToast("Копия открыта в новой вкладке — сохраните через меню браузера");
+        return;
+      }
+    } catch (e) { /* совсем не вышло */ }
+
+    showToast("Не удалось сделать копию в этом браузере — попробуйте другой");
   }
   const importRef = useRef(null);
   async function importGarden(file) {
