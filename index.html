@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-10:51";
+const APP_VERSION = "14.07-10:57";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -3270,7 +3270,7 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, s
                 placeholder={s.isBalcony ? "балкон / лоджия / солнечная сторона" : "окно гостиной / стеллаж в спальне"}
               />
               <select
-                style={{ ...inputStyle, flex: 1, minWidth: 150 }}
+                style={{ ...inputStyle, flex: 1, minWidth: 130 }}
                 value={s.orientation}
                 onChange={(e) => patchSpot(s.id, { orientation: e.target.value })}
               >
@@ -3280,6 +3280,12 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, s
                   </option>
                 ))}
               </select>
+              <label style={{ ...sans, fontSize: 13, color: s.isBalcony ? C.moss : C.sage, display: "flex", alignItems: "center", gap: 5, cursor: "pointer", whiteSpace: "nowrap", userSelect: "none" }}>
+                <input type="checkbox" checked={s.isBalcony}
+                  onChange={() => patchSpot(s.id, { isBalcony: !s.isBalcony, orientation: s.isBalcony ? s.orientation : (s.orientation === "inside" ? "south" : s.orientation) })}
+                  style={{ width: 16, height: 16, accentColor: C.moss, cursor: "pointer" }} />
+                балкон
+              </label>
               {spots.length > 1 && (
                 <button
                   onClick={() => setSpots(spots.filter((x) => x.id !== s.id))}
@@ -3291,24 +3297,19 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, s
               )}
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
-              <Chip active={s.isBalcony}
-                onClick={() => patchSpot(s.id, { isBalcony: !s.isBalcony, orientation: s.isBalcony ? s.orientation : (s.orientation === "inside" ? "south" : s.orientation) })}>
-                🌤 балкон
-              </Chip>
-              {s.isBalcony && (
-                <React.Fragment>
-                  <Chip active={s.glazed === true} onClick={() => patchSpot(s.id, { glazed: s.glazed === true ? null : true })}>застеклён</Chip>
-                  <Chip active={s.glazed === false} onClick={() => patchSpot(s.id, { glazed: s.glazed === false ? null : false })}>открытый</Chip>
-                </React.Fragment>
-              )}
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
               {LIGHTS.map((l) => (
                 <Chip key={l.v} active={s.light === l.v}
                   onClick={() => patchSpot(s.id, { light: s.light === l.v ? "" : l.v })}>
                   {l.t}
                 </Chip>
               ))}
+              {s.isBalcony && (
+                <React.Fragment>
+                  <span style={{ ...sans, fontSize: 12, color: C.sage, marginLeft: 4 }}>·</span>
+                  <Chip active={s.glazed === true} onClick={() => patchSpot(s.id, { glazed: s.glazed === true ? null : true })}>застеклён</Chip>
+                  <Chip active={s.glazed === false} onClick={() => patchSpot(s.id, { glazed: s.glazed === false ? null : false })}>открытый</Chip>
+                </React.Fragment>
+              )}
             </div>
           </div>
         ))}
@@ -3319,7 +3320,7 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, s
           + добавить место
         </button>
         <div style={{ ...sans, fontSize: 12, color: C.sage, marginTop: 4 }}>
-          Балкон отмечайте чипом «🌤 балкон» — их может быть несколько, и на одном балконе можно завести отдельно солнечную и теневую точки.
+          Отметьте «балкон» галочкой — балконов может быть несколько, и один можно разбить на солнечную и теневую точки.
         </div>
       </Field>
 
