@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-16:04";
+const APP_VERSION = "14.07-16:09";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -2298,6 +2298,8 @@ function PlantView({ plant, apartment, invText, inventory, allPlants, onOpenPlan
   const [eName, setEName] = useState("");
   const [eNickname, setENickname] = useState("");
   const [eOwned, setEOwned] = useState("");
+  const [eOrigin, setEOrigin] = useState("bought");
+  const [eParentId, setEParentId] = useState("");
   const [ePhoto, setEPhoto] = useState(null);
   const editFileRef = useRef(null);
   const editCamRef = useRef(null);
@@ -2310,6 +2312,8 @@ function PlantView({ plant, apartment, invText, inventory, allPlants, onOpenPlan
     setEName(plant.name);
     setENickname(plant.nickname || "");
     setEOwned(plant.ownedSince || "");
+    setEOrigin(plant.origin || "bought");
+    setEParentId(plant.parentId || "");
     setEPhoto(null);
     setEditing(true);
     setMoving(false);
@@ -2321,6 +2325,8 @@ function PlantView({ plant, apartment, invText, inventory, allPlants, onOpenPlan
       name: eName.trim(),
       nickname: eNickname.trim(),
       ownedSince: eOwned || null,
+      origin: eOrigin,
+      parentId: eOrigin === "offshoot" && eParentId ? eParentId : null,
       ...(ePhoto ? { photo: ePhoto } : {}),
     });
     setEditing(false);
@@ -2471,6 +2477,25 @@ function PlantView({ plant, apartment, invText, inventory, allPlants, onOpenPlan
                 <input type="month" style={inputStyle} value={eOwned}
                   onChange={(e) => setEOwned(e.target.value)}
                   max={new Date().toISOString().slice(0, 7)} />
+              </Field>
+              <Field label="Откуда растение">
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <Chip active={eOrigin === "bought"} onClick={() => { setEOrigin("bought"); setEParentId(""); }}>🛍 Куплено / подарено</Chip>
+                  <Chip active={eOrigin === "offshoot"} onClick={() => setEOrigin("offshoot")}>🌱 Отросток своего</Chip>
+                </div>
+                {eOrigin === "offshoot" && (allPlants || []).filter((x) => x.id !== plant.id).length > 0 && (
+                  <div className="reveal" style={{ marginTop: 10 }}>
+                    <div style={{ ...sans, fontSize: 13, color: C.moss, marginBottom: 6 }}>От какого растения? (по желанию)</div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {(allPlants || []).filter((x) => x.id !== plant.id).map((pp) => (
+                        <Chip key={pp.id} active={eParentId === pp.id}
+                          onClick={() => setEParentId(eParentId === pp.id ? "" : pp.id)}>
+                          {pp.nickname || pp.name}
+                        </Chip>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </Field>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
                 {(ePhoto || plant.photo) && (
