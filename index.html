@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-10:44";
+const APP_VERSION = "14.07-10:51";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -246,23 +246,17 @@ function apartmentText(profile) {
     return "Описание квартиры не заполнено — давай общие рекомендации и при необходимости уточняй про свет.";
   }
   const places = profile.spots
-    .map(
-      (s) =>
-        `${s.label}${s.isBalcony ? " (балкон)" : ""} — ${
-          s.orientation === "inside" ? "не у окна" : "окна на " + orientationT(s.orientation)
-        }${s.light ? ", освещённость: " + lightPlain(s.light) : ""}`
-    )
+    .map((s) => {
+      const glaze = s.isBalcony
+        ? s.glazed === true ? ", застеклён" : s.glazed === false ? ", открытый" : ""
+        : "";
+      return `${s.label}${s.isBalcony ? " (балкон)" : ""} — ${
+        s.orientation === "inside" ? "не у окна" : "окна на " + orientationT(s.orientation)
+      }${s.light ? ", освещённость: " + lightPlain(s.light) : ""}${glaze}`;
+    })
     .join("; ");
-  const hasBalcony = profile.spots.some((s) => s.isBalcony);
-  const balcony = hasBalcony
-    ? profile.balconyGlazed === true
-      ? " Балкон застеклён."
-      : profile.balconyGlazed === false
-        ? " Балкон открытый, не застеклён."
-        : ""
-    : "";
   const notes = profile.notes ? ` Дополнительно о квартире: ${profile.notes}.` : "";
-  return `Места для растений в квартире: ${places}.${balcony}${notes}`;
+  return `Места для растений в квартире: ${places}.${notes}`;
 }
 
 function spotsFromProfile(profile) {
@@ -3215,38 +3209,41 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, s
     }
   }
 
-  const existingHome = profile && profile.spots ? profile.spots.filter((s) => !s.isBalcony) : [];
-  const existingBalcony = profile && profile.spots ? profile.spots.find((s) => s.isBalcony) : null;
-
   const [spots, setSpots] = useState(
-    existingHome.length > 0
-      ? existingHome
-      : [{ id: uid(), label: "", orientation: "south", light: "", isBalcony: false }]
+    profile && profile.spots && profile.spots.length > 0
+      ? profile.spots.map((s) => ({
+          id: s.id || uid(),
+          label: s.label || "",
+          orientation: s.orientation || "south",
+          light: s.light || "",
+          isBalcony: !!s.isBalcony,
+          // застеклённость: из нового поля, иначе из старого глобального (миграция)
+          glazed: s.glazed !== undefined ? s.glazed : (s.isBalcony ? (profile.balconyGlazed ?? null) : null),
+        }))
+      : [{ id: uid(), label: "", orientation: "south", light: "", isBalcony: false, glazed: null }]
   );
-  const [hasBalcony, setHasBalcony] = useState(!!existingBalcony);
-  const [balconyLabel, setBalconyLabel] = useState(existingBalcony ? existingBalcony.label : "Балкон");
-  const [balconyOrient, setBalconyOrient] = useState(existingBalcony ? existingBalcony.orientation : "south");
-  const [balconyLight, setBalconyLight] = useState(existingBalcony ? existingBalcony.light || "" : "");
-  const [balconyGlazed, setBalconyGlazed] = useState(profile ? profile.balconyGlazed : null);
   const [notes, setNotes] = useState((profile && profile.notes) || "");
 
-  const canSave = spots.some((s) => s.label.trim()) || hasBalcony;
+  const canSave = spots.some((s) => s.label.trim());
 
   function patchSpot(id, patch) {
     setSpots(spots.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   }
 
   function save() {
-    const cleanHome = spots
-      .map((s) => ({ ...s, label: s.label.trim(), isBalcony: false }))
+    const clean = spots
+      .map((s) => ({
+        id: s.id,
+        label: s.label.trim(),
+        orientation: s.orientation,
+        light: s.light || "",
+        isBalcony: !!s.isBalcony,
+        glazed: s.isBalcony ? (s.glazed ?? null) : null,
+      }))
       .filter((s) => s.label);
-    const all = hasBalcony
-      ? [...cleanHome, { id: uid(), label: balconyLabel.trim() || "Балкон", orientation: balconyOrient, light: balconyLight, isBalcony: true }]
-      : cleanHome;
-    if (all.length === 0) return;
+    if (clean.length === 0) return;
     onSave({
-      spots: all,
-      balconyGlazed: hasBalcony ? balconyGlazed : null,
+      spots: clean,
       notes: notes.trim(),
     });
   }
@@ -3262,22 +3259,22 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, s
           : "Изменения коснутся всех будущих советов. Паспорта уже посаженных растений можно освежить кнопкой «обновить» в их карточках."}
       </p>
 
-      <Field label="Места в комнатах, где живут растения">
+      <Field label="Места, где живут растения">
         {spots.map((s) => (
-          <div key={s.id} style={{ marginBottom: 12 }}>
+          <div key={s.id} style={{ marginBottom: 14, padding: s.isBalcony ? 10 : 0, background: s.isBalcony ? C.waterSoft + "66" : "none", borderRadius: 12 }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <input
                 style={{ ...inputStyle, flex: 2, minWidth: 150 }}
                 value={s.label}
                 onChange={(e) => patchSpot(s.id, { label: e.target.value })}
-                placeholder="окно гостиной / стеллаж в спальне"
+                placeholder={s.isBalcony ? "балкон / лоджия / солнечная сторона" : "окно гостиной / стеллаж в спальне"}
               />
               <select
                 style={{ ...inputStyle, flex: 1, minWidth: 150 }}
                 value={s.orientation}
                 onChange={(e) => patchSpot(s.id, { orientation: e.target.value })}
               >
-                {ORIENTATIONS.map((o) => (
+                {ORIENTATIONS.filter((o) => !(s.isBalcony && o.v === "inside")).map((o) => (
                   <option key={o.v} value={o.v}>
                     {o.v === "inside" ? "не у окна" : "окна на " + o.t}
                   </option>
@@ -3293,6 +3290,18 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, s
                 </button>
               )}
             </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
+              <Chip active={s.isBalcony}
+                onClick={() => patchSpot(s.id, { isBalcony: !s.isBalcony, orientation: s.isBalcony ? s.orientation : (s.orientation === "inside" ? "south" : s.orientation) })}>
+                🌤 балкон
+              </Chip>
+              {s.isBalcony && (
+                <React.Fragment>
+                  <Chip active={s.glazed === true} onClick={() => patchSpot(s.id, { glazed: s.glazed === true ? null : true })}>застеклён</Chip>
+                  <Chip active={s.glazed === false} onClick={() => patchSpot(s.id, { glazed: s.glazed === false ? null : false })}>открытый</Chip>
+                </React.Fragment>
+              )}
+            </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
               {LIGHTS.map((l) => (
                 <Chip key={l.v} active={s.light === l.v}
@@ -3304,51 +3313,14 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, s
           </div>
         ))}
         <button
-          onClick={() => setSpots([...spots, { id: uid(), label: "", orientation: "south", light: "", isBalcony: false }])}
-          style={{ ...sans, background: "none", border: "none", color: C.moss, cursor: "pointer", fontSize: 13, textDecoration: "underline", padding: 0 }}
+          onClick={() => setSpots([...spots, { id: uid(), label: "", orientation: "south", light: "", isBalcony: false, glazed: null }])}
+          style={{ ...sans, background: "none", border: "none", color: C.moss, cursor: "pointer", fontSize: 13, textDecoration: "underline", padding: "8px 0" }}
         >
           + добавить место
         </button>
-      </Field>
-
-      <Field label="Балкон">
-        <div style={{ display: "flex", gap: 8 }}>
-          <Chip active={hasBalcony} onClick={() => setHasBalcony(true)}>Есть</Chip>
-          <Chip active={!hasBalcony} onClick={() => setHasBalcony(false)}>Нет</Chip>
+        <div style={{ ...sans, fontSize: 12, color: C.sage, marginTop: 4 }}>
+          Балкон отмечайте чипом «🌤 балкон» — их может быть несколько, и на одном балконе можно завести отдельно солнечную и теневую точки.
         </div>
-        {hasBalcony && (
-          <div style={{ marginTop: 10 }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <input
-                style={{ ...inputStyle, flex: 2, minWidth: 150 }}
-                value={balconyLabel}
-                onChange={(e) => setBalconyLabel(e.target.value)}
-                placeholder="Балкон / лоджия"
-              />
-              <select
-                style={{ ...inputStyle, flex: 1, minWidth: 150 }}
-                value={balconyOrient}
-                onChange={(e) => setBalconyOrient(e.target.value)}
-              >
-                {ORIENTATIONS.filter((o) => o.v !== "inside").map((o) => (
-                  <option key={o.v} value={o.v}>окна на {o.t}</option>
-                ))}
-              </select>
-            </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              <Chip active={balconyGlazed === true} onClick={() => setBalconyGlazed(true)}>Застеклён</Chip>
-              <Chip active={balconyGlazed === false} onClick={() => setBalconyGlazed(false)}>Открытый</Chip>
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
-              {LIGHTS.map((l) => (
-                <Chip key={l.v} active={balconyLight === l.v}
-                  onClick={() => setBalconyLight(balconyLight === l.v ? "" : l.v)}>
-                  {l.t}
-                </Chip>
-              ))}
-            </div>
-          </div>
-        )}
       </Field>
 
       <Field label="Ещё о квартире (по желанию, но очень помогает советам)">
