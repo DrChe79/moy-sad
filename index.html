@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-17:36";
+const APP_VERSION = "14.07-18:59";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -905,6 +905,38 @@ function MyGarden() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState(null);
+  const [pullY, setPullY] = useState(0);        // насколько оттянут экран
+  const [refreshing, setRefreshing] = useState(false);
+  const pullStart = useRef(null);
+
+  function onTouchStart(e) {
+    // жест только когда страница вверху и не идёт обновление
+    if (window.scrollY <= 0 && !refreshing) {
+      pullStart.current = e.touches[0].clientY;
+    } else {
+      pullStart.current = null;
+    }
+  }
+  function onTouchMove(e) {
+    if (pullStart.current == null) return;
+    const dy = e.touches[0].clientY - pullStart.current;
+    if (dy > 0 && window.scrollY <= 0) {
+      // тянем вниз — сопротивление, ограничим 90px
+      setPullY(Math.min(90, dy * 0.5));
+    }
+  }
+  async function onTouchEnd() {
+    if (pullStart.current == null) { setPullY(0); return; }
+    pullStart.current = null;
+    if (pullY > 55) {
+      setRefreshing(true);
+      setPullY(50);
+      try { await pullToRefresh(); } catch (e) {}
+      showToast("Сад обновлён 🌿");
+      setRefreshing(false);
+    }
+    setPullY(0);
+  }
   const [mood, setMood] = useState("");
   const [fact, setFact] = useState(null);
   const [weather, setWeather] = useState(null);
@@ -1059,6 +1091,60 @@ function MyGarden() {
       } catch (e) { /* без факта тоже переживём */ }
     })();
   }, [loaded]);
+
+  async function pullFromCloud(code, opts) {
+    if (!SYNC_BASE || !code) return false;
+    const force = opts && opts.force;
+    let localStr = null, localUpdated = 0;
+    try {
+      localStr = (await appStorage.get("garden:data")).value;
+      localUpdated = (JSON.parse(localStr) || {}).updatedAt || 0;
+    } catch (e) {}
+    try {
+      const r = await fetch(SYNC_BASE + "/sync/get?code=" + encodeURIComponent(code));
+      if (r.ok) {
+        const j = await r.json();
+        if (j && j.data && ((j.updatedAt || 0) > localUpdated || force)) {
+          const d = JSON.parse(j.data);
+          let localInv = [];
+          try { localInv = (JSON.parse(localStr) || {}).inventory || []; } catch (e2) {}
+          const srvInv = d.inventory || [];
+          const mergedInv = srvInv.map((si) => {
+            const li = localInv.find((x) => x.id === si.id);
+            if (li && li.ai && !si.ai) return { ...si, ai: li.ai };
+            return si;
+          });
+          localInv.forEach((li) => { if (!mergedInv.find((x) => x.id === li.id)) mergedInv.push(li); });
+          const mergedData = { ...d, inventory: mergedInv };
+          const changed = JSON.stringify(mergedInv) !== JSON.stringify(srvInv);
+          setPlants(d.plants || []);
+          setJournal(d.journal || {});
+          setWishlist(d.wishlist || []);
+          setNeeds(d.needs || []);
+          setInventory(mergedInv);
+          setProfile(d.profile || null);
+          const finalStr = JSON.stringify({ ...mergedData, updatedAt: d.updatedAt || Date.now() });
+          await appStorage.set("garden:data", finalStr);
+          setSync({ code, at: Date.now() });
+          if (changed) schedulePush(code, finalStr);
+          return true;
+        } else if (localStr && localUpdated > ((j && j.updatedAt) || 0)) {
+          pushNow(code, localStr);
+        } else {
+          setSync({ code, at: Date.now() });
+        }
+      } else if (r.status === 404 && localStr) {
+        pushNow(code, localStr);
+      }
+    } catch (e) { /* офлайн */ }
+    return false;
+  }
+
+  async function pullToRefresh() {
+    const code = sync && sync.code;
+    if (code) await pullFromCloud(code, { force: true });
+    if (profile && profile.city) await loadWeather(profile.city, true);
+  }
 
   async function loadWeather(cityRaw, force) {
     const city = (cityRaw || "").trim();
@@ -1443,8 +1529,19 @@ function MyGarden() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: C.paper, color: C.ink }}>
+    <div
+      style={{ minHeight: "100vh", background: C.paper, color: C.ink, transform: pullY ? `translateY(${pullY}px)` : "none", transition: pullStart.current == null ? "transform .25s ease" : "none" }}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
       <style>{GLOBAL_CSS}</style>
+      {(pullY > 0 || refreshing) && (
+        <div aria-hidden="true" style={{ position: "fixed", top: 0, left: 0, right: 0, height: Math.max(pullY, refreshing ? 50 : 0), display: "flex", alignItems: "center", justifyContent: "center", zIndex: 5, pointerEvents: "none", color: C.sage, ...sans, fontSize: 13 }}>
+          <span style={{ transform: refreshing ? "none" : `rotate(${pullY * 4}deg)`, display: "inline-block", fontSize: 20 }}>{refreshing ? "🌿" : "↻"}</span>
+          <span style={{ marginLeft: 8 }}>{refreshing ? "обновляю…" : pullY > 55 ? "отпустите" : "потяните"}</span>
+        </div>
+      )}
       {wallpaper && (
         <div
           aria-hidden="true"
