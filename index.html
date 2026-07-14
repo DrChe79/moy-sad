@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-11:31";
+const APP_VERSION = "14.07-11:47";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -296,6 +296,47 @@ function spotsFromProfile(profile) {
       location: s.isBalcony ? "balcony" : "home",
     };
   });
+}
+
+/* ─────────────────────────  Погода (Open-Meteo, без ключей)  ───────────────────────── */
+async function geocodeCity(city) {
+  const url = "https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(city) + "&count=1&language=ru&format=json";
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("geocode " + r.status);
+  const j = await r.json();
+  const hit = j && j.results && j.results[0];
+  if (!hit) throw new Error("city not found");
+  return { lat: hit.latitude, lon: hit.longitude, name: hit.name };
+}
+
+async function fetchWeather(lat, lon) {
+  const url =
+    "https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon +
+    "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&forecast_days=2&timezone=auto";
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("weather " + r.status);
+  const j = await r.json();
+  const d = j && j.daily;
+  if (!d || !d.time) throw new Error("no daily");
+  return {
+    tmax: d.temperature_2m_max[0],
+    tmin: d.temperature_2m_min[0],
+    rain: d.precipitation_sum[0],
+    tmaxNext: d.temperature_2m_max[1],
+    tminNext: d.temperature_2m_min[1],
+  };
+}
+
+/* Из прогноза — тёплые подсказки для «Сегодня». hasBalcony — есть ли балконные растения. */
+function weatherHints(w, hasBalcony) {
+  const hints = [];
+  if (w.tmax >= 30) hints.push({ icon: "🔥", text: `Жара до +${Math.round(w.tmax)}° — полейте обильнее и проверьте, не пересыхает ли земля к вечеру.` });
+  else if (w.tmax >= 26) hints.push({ icon: "☀️", text: `Тёплый день, до +${Math.round(w.tmax)}° — растения пьют активнее обычного.` });
+  if (hasBalcony && w.tmin <= 3) hints.push({ icon: "🥶", text: `Ночью холодно, до +${Math.round(w.tmin)}° — теплолюбивые с балкона лучше занести.` });
+  if (hasBalcony && w.tminNext <= 0) hints.push({ icon: "❄️", text: `Завтра ночью возможны заморозки (${Math.round(w.tminNext)}°) — занесите балконные заранее.` });
+  if (w.rain >= 5 && hasBalcony) hints.push({ icon: "🌧", text: `Ожидается дождь (${Math.round(w.rain)} мм) — балконные под открытым небом можно сегодня не поливать.` });
+  if (w.tmax <= 5 && w.tmax >= -50) hints.push({ icon: "🧣", text: `Прохладно, до +${Math.round(w.tmax)}° — зимний режим, поливайте реже и берегите от сквозняков.` });
+  return hints;
 }
 
 /* ─────────────────────────  Работа с ИИ  ───────────────────────── */
@@ -759,6 +800,7 @@ function MyGarden() {
   const [toast, setToast] = useState(null);
   const [mood, setMood] = useState("");
   const [fact, setFact] = useState(null);
+  const [weather, setWeather] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [wallpaper, setWallpaper] = useState(null);
   const [sync, setSync] = useState({ code: null, at: null });
@@ -910,6 +952,29 @@ function MyGarden() {
       } catch (e) { /* без факта тоже переживём */ }
     })();
   }, [loaded]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const city = (profile && profile.city || "").trim();
+    if (!city) { setWeather(null); return; }
+    (async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      try {
+        const r = await appStorage.get("garden:weather");
+        const cached = JSON.parse(r.value);
+        if (cached && cached.date === today && cached.city === city && cached.w) {
+          setWeather(cached.w);
+          return;
+        }
+      } catch (e) { /* нет кэша */ }
+      try {
+        const geo = await geocodeCity(city);
+        const w = await fetchWeather(geo.lat, geo.lon);
+        setWeather(w);
+        try { await appStorage.set("garden:weather", JSON.stringify({ date: today, city, w })); } catch (e) {}
+      } catch (e) { setWeather(null); /* город не найден или сеть — просто без погоды */ }
+    })();
+  }, [loaded, profile && profile.city]);
 
   async function persist(nextPlants, nextJournal, nextWishlist, nextProfile, nextNeeds, nextInventory) {
     const payload = JSON.stringify({
@@ -1325,6 +1390,7 @@ function MyGarden() {
             onVacation={() => setView("vacation")}
             onWater={waterPlant} onFeed={feedPlant}
             onMist={mistPlant} onWipe={wipePlant}
+            weatherHintsList={weather ? weatherHints(weather, plants.some((p) => p.location === "balcony")) : []}
             onOpen={(id) => { setOpenId(id); setView("plant"); }} />
         )}
         {view === "add" && (
@@ -1661,7 +1727,7 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
 }
 
 /* ─────────────────────────  Сегодня  ───────────────────────── */
-function TodayView({ dueList, balconyAutumn, plants, dueInfoFn, fact, onVacation, onWater, onFeed, onMist, onWipe, onOpen }) {
+function TodayView({ dueList, balconyAutumn, plants, dueInfoFn, fact, weatherHintsList, onVacation, onWater, onFeed, onMist, onWipe, onOpen }) {
   const factPlant = fact && plants.find((p) => p.id === fact.plantId);
   const balconyPlants = plants.filter((p) => p.location === "balcony");
   const schedule = plants
@@ -1696,6 +1762,17 @@ function TodayView({ dueList, balconyAutumn, plants, dueInfoFn, fact, onVacation
               {fact.text}
             </div>
           </div>
+        </div>
+      )}
+
+      {weatherHintsList && weatherHintsList.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          {weatherHintsList.map((h, k) => (
+            <div key={k} style={{ display: "flex", gap: 10, alignItems: "flex-start", background: C.waterSoft + "99", border: `1px solid ${C.line}`, borderRadius: 14, padding: "11px 14px", marginBottom: 8 }}>
+              <span style={{ fontSize: 18, lineHeight: 1.3 }}>{h.icon}</span>
+              <span style={{ ...sans, fontSize: 14, color: C.ink, lineHeight: 1.45 }}>{h.text}</span>
+            </div>
+          ))}
         </div>
       )}
 
@@ -3292,6 +3369,7 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, s
       : [{ id: uid(), label: "", orientation: "south", light: "", isBalcony: false, glazed: null }]
   );
   const [notes, setNotes] = useState((profile && profile.notes) || "");
+  const [city, setCity] = useState((profile && profile.city) || "");
 
   const canSave = spots.some((s) => s.label.trim());
 
@@ -3313,6 +3391,7 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, s
     if (clean.length === 0) return;
     onSave({
       spots: clean,
+      city: city.trim(),
       notes: notes.trim(),
     });
   }
@@ -3395,6 +3474,18 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, s
         </button>
         <div style={{ ...sans, fontSize: 12, color: C.sage, marginTop: 4 }}>
           Отметьте «балкон» галочкой — балконов может быть несколько, и один можно разбить на солнечную и теневую точки.
+        </div>
+      </Field>
+
+      <Field label="Город (для прогноза погоды и советов по сезону)">
+        <input
+          style={inputStyle}
+          value={city}
+          onChange={(e) => setCity(e.target.value)}
+          placeholder="Москва / Санкт-Петербург / Казань…"
+        />
+        <div style={{ ...sans, fontSize: 12, color: C.sage, marginTop: 4 }}>
+          По городу садовник подскажет в «Сегодня», когда жара или заморозки — полить обильнее или занести балконные.
         </div>
       </Field>
 
