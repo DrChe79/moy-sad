@@ -58,7 +58,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-10:37";
+const APP_VERSION = "14.07-10:44";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -232,6 +232,15 @@ const ORIENTATIONS = [
 ];
 const orientationT = (v) => (ORIENTATIONS.find((o) => o.v === v) || {}).t || "";
 
+const LIGHTS = [
+  { v: "direct", t: "☀️ прямое солнце" },
+  { v: "bright", t: "🌤 яркий рассеянный" },
+  { v: "partial", t: "⛅ полутень" },
+  { v: "shade", t: "🌑 тень" },
+];
+const lightT = (v) => (LIGHTS.find((l) => l.v === v) || {}).t || "";
+const lightPlain = (v) => ({ direct: "прямое солнце", bright: "яркий рассеянный свет", partial: "полутень", shade: "тень" }[v] || "");
+
 function apartmentText(profile) {
   if (!profile || !profile.spots || profile.spots.length === 0) {
     return "Описание квартиры не заполнено — давай общие рекомендации и при необходимости уточняй про свет.";
@@ -240,8 +249,8 @@ function apartmentText(profile) {
     .map(
       (s) =>
         `${s.label}${s.isBalcony ? " (балкон)" : ""} — ${
-          s.orientation === "inside" ? "не у окна, рассеянный свет" : "окна на " + orientationT(s.orientation)
-        }`
+          s.orientation === "inside" ? "не у окна" : "окна на " + orientationT(s.orientation)
+        }${s.light ? ", освещённость: " + lightPlain(s.light) : ""}`
     )
     .join("; ");
   const hasBalcony = profile.spots.some((s) => s.isBalcony);
@@ -258,14 +267,17 @@ function apartmentText(profile) {
 
 function spotsFromProfile(profile) {
   if (!profile || !profile.spots) return [];
-  return profile.spots.map((s) => ({
-    label: `${s.isBalcony ? "🌤 " : ""}${s.label}`,
-    spot:
+  return profile.spots.map((s) => {
+    const base =
       s.orientation === "inside"
         ? `${s.label}, не у окна`
-        : `${s.label}, окна на ${orientationT(s.orientation)}`,
-    location: s.isBalcony ? "balcony" : "home",
-  }));
+        : `${s.label}, окна на ${orientationT(s.orientation)}`;
+    return {
+      label: `${s.isBalcony ? "🌤 " : ""}${s.label}`,
+      spot: s.light ? `${base} (${lightPlain(s.light)})` : base,
+      location: s.isBalcony ? "balcony" : "home",
+    };
+  });
 }
 
 /* ─────────────────────────  Работа с ИИ  ───────────────────────── */
@@ -3209,11 +3221,12 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, s
   const [spots, setSpots] = useState(
     existingHome.length > 0
       ? existingHome
-      : [{ id: uid(), label: "", orientation: "south", isBalcony: false }]
+      : [{ id: uid(), label: "", orientation: "south", light: "", isBalcony: false }]
   );
   const [hasBalcony, setHasBalcony] = useState(!!existingBalcony);
   const [balconyLabel, setBalconyLabel] = useState(existingBalcony ? existingBalcony.label : "Балкон");
   const [balconyOrient, setBalconyOrient] = useState(existingBalcony ? existingBalcony.orientation : "south");
+  const [balconyLight, setBalconyLight] = useState(existingBalcony ? existingBalcony.light || "" : "");
   const [balconyGlazed, setBalconyGlazed] = useState(profile ? profile.balconyGlazed : null);
   const [notes, setNotes] = useState((profile && profile.notes) || "");
 
@@ -3228,7 +3241,7 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, s
       .map((s) => ({ ...s, label: s.label.trim(), isBalcony: false }))
       .filter((s) => s.label);
     const all = hasBalcony
-      ? [...cleanHome, { id: uid(), label: balconyLabel.trim() || "Балкон", orientation: balconyOrient, isBalcony: true }]
+      ? [...cleanHome, { id: uid(), label: balconyLabel.trim() || "Балкон", orientation: balconyOrient, light: balconyLight, isBalcony: true }]
       : cleanHome;
     if (all.length === 0) return;
     onSave({
@@ -3251,37 +3264,47 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, s
 
       <Field label="Места в комнатах, где живут растения">
         {spots.map((s) => (
-          <div key={s.id} style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <input
-              style={{ ...inputStyle, flex: 2, minWidth: 150 }}
-              value={s.label}
-              onChange={(e) => patchSpot(s.id, { label: e.target.value })}
-              placeholder="окно гостиной / стеллаж в спальне"
-            />
-            <select
-              style={{ ...inputStyle, flex: 1, minWidth: 150 }}
-              value={s.orientation}
-              onChange={(e) => patchSpot(s.id, { orientation: e.target.value })}
-            >
-              {ORIENTATIONS.map((o) => (
-                <option key={o.v} value={o.v}>
-                  {o.v === "inside" ? "не у окна" : "окна на " + o.t}
-                </option>
-              ))}
-            </select>
-            {spots.length > 1 && (
-              <button
-                onClick={() => setSpots(spots.filter((x) => x.id !== s.id))}
-                title="убрать место"
-                style={{ ...sans, background: "none", border: "none", color: C.sage, cursor: "pointer", fontSize: 17 }}
+          <div key={s.id} style={{ marginBottom: 12 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <input
+                style={{ ...inputStyle, flex: 2, minWidth: 150 }}
+                value={s.label}
+                onChange={(e) => patchSpot(s.id, { label: e.target.value })}
+                placeholder="окно гостиной / стеллаж в спальне"
+              />
+              <select
+                style={{ ...inputStyle, flex: 1, minWidth: 150 }}
+                value={s.orientation}
+                onChange={(e) => patchSpot(s.id, { orientation: e.target.value })}
               >
-                ×
-              </button>
-            )}
+                {ORIENTATIONS.map((o) => (
+                  <option key={o.v} value={o.v}>
+                    {o.v === "inside" ? "не у окна" : "окна на " + o.t}
+                  </option>
+                ))}
+              </select>
+              {spots.length > 1 && (
+                <button
+                  onClick={() => setSpots(spots.filter((x) => x.id !== s.id))}
+                  title="убрать место"
+                  style={{ ...sans, background: "none", border: "none", color: C.sage, cursor: "pointer", fontSize: 17 }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+              {LIGHTS.map((l) => (
+                <Chip key={l.v} active={s.light === l.v}
+                  onClick={() => patchSpot(s.id, { light: s.light === l.v ? "" : l.v })}>
+                  {l.t}
+                </Chip>
+              ))}
+            </div>
           </div>
         ))}
         <button
-          onClick={() => setSpots([...spots, { id: uid(), label: "", orientation: "south", isBalcony: false }])}
+          onClick={() => setSpots([...spots, { id: uid(), label: "", orientation: "south", light: "", isBalcony: false }])}
           style={{ ...sans, background: "none", border: "none", color: C.moss, cursor: "pointer", fontSize: 13, textDecoration: "underline", padding: 0 }}
         >
           + добавить место
@@ -3315,6 +3338,14 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, s
             <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
               <Chip active={balconyGlazed === true} onClick={() => setBalconyGlazed(true)}>Застеклён</Chip>
               <Chip active={balconyGlazed === false} onClick={() => setBalconyGlazed(false)}>Открытый</Chip>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+              {LIGHTS.map((l) => (
+                <Chip key={l.v} active={balconyLight === l.v}
+                  onClick={() => setBalconyLight(balconyLight === l.v ? "" : l.v)}>
+                  {l.t}
+                </Chip>
+              ))}
             </div>
           </div>
         )}
