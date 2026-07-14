@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-11:55";
+const APP_VERSION = "14.07-12:10";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -327,15 +327,25 @@ async function fetchWeather(lat, lon) {
   };
 }
 
-/* Из прогноза — тёплые подсказки для «Сегодня». hasBalcony — есть ли балконные растения. */
+/* Из прогноза — тёплые подсказки для «Сегодня». hasBalcony — есть ли балконные растения.
+   Первая карточка — всегда сводка погоды дня; далее — советы при значимых условиях. */
 function weatherHints(w, hasBalcony) {
   const hints = [];
-  if (w.tmax >= 30) hints.push({ icon: "🔥", text: `Жара до +${Math.round(w.tmax)}° — полейте обильнее и проверьте, не пересыхает ли земля к вечеру.` });
-  else if (w.tmax >= 26) hints.push({ icon: "☀️", text: `Тёплый день, до +${Math.round(w.tmax)}° — растения пьют активнее обычного.` });
-  if (hasBalcony && w.tmin <= 3) hints.push({ icon: "🥶", text: `Ночью холодно, до +${Math.round(w.tmin)}° — теплолюбивые с балкона лучше занести.` });
+  const t = Math.round(w.tmax);
+  const tn = Math.round(w.tmin);
+  let mood = "🌤";
+  if (w.tmax >= 30) mood = "🔥";
+  else if (w.tmax >= 24) mood = "☀️";
+  else if (w.tmax <= 5) mood = "🧣";
+  else if (w.tmax <= 12) mood = "🍂";
+  hints.push({ icon: mood, text: `Сегодня в вашем городе днём до +${t}°, ночью ${tn > 0 ? "+" + tn : tn}°.${w.rain >= 1 ? ` Осадки ~${Math.round(w.rain)} мм.` : ""}` });
+
+  if (w.tmax >= 30) hints.push({ icon: "💧", text: "Жара — полейте обильнее и проверьте, не пересыхает ли земля к вечеру." });
+  else if (w.tmax >= 26) hints.push({ icon: "🌱", text: "Тепло — растения пьют активнее обычного, загляните в поддоны." });
+  if (hasBalcony && w.tmin <= 3) hints.push({ icon: "🥶", text: "Ночь холодная — теплолюбивые с балкона лучше занести." });
   if (hasBalcony && w.tminNext <= 0) hints.push({ icon: "❄️", text: `Завтра ночью возможны заморозки (${Math.round(w.tminNext)}°) — занесите балконные заранее.` });
-  if (w.rain >= 5 && hasBalcony) hints.push({ icon: "🌧", text: `Ожидается дождь (${Math.round(w.rain)} мм) — балконные под открытым небом можно сегодня не поливать.` });
-  if (w.tmax <= 5 && w.tmax >= -50) hints.push({ icon: "🧣", text: `Прохладно, до +${Math.round(w.tmax)}° — зимний режим, поливайте реже и берегите от сквозняков.` });
+  if (w.rain >= 5 && hasBalcony) hints.push({ icon: "🌧", text: "Ожидается дождь — балконные под открытым небом можно сегодня не поливать." });
+  if (w.tmax <= 5) hints.push({ icon: "🧣", text: "Холодно — зимний режим: поливайте реже и берегите от сквозняков у окон." });
   return hints;
 }
 
