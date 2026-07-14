@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-14:37";
+const APP_VERSION = "14.07-15:46";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -75,6 +75,39 @@ const isSummer = () => {
   const m = new Date().getMonth() + 1;
   return m >= 4 && m <= 9;
 };
+
+/* Сезонные заметки заботы: по месяцу и составу сада. Возвращает 0-2 карточки. */
+function seasonalNotes(plants) {
+  const m = new Date().getMonth() + 1;
+  const hasBalcony = plants.some((p) => p.location === "balcony");
+  const hasHumid = plants.some((p) => p.care && p.care.mistIntervalDays);
+  const out = [];
+  // Весна (март-апрель): пробуждение
+  if (m === 3 || m === 4) {
+    out.push({ icon: "🌱", text: "Весна — сад просыпается: возобновляйте подкормки, а кому тесно в горшке — самое время пересадить." });
+  }
+  // Начало лета (май): вынос на балкон
+  else if (m === 5 && hasBalcony) {
+    out.push({ icon: "☀️", text: "Устанавливается тепло — балконные растения оживают, но от резкого прямого солнца притеняйте первые дни, чтобы не обожглись." });
+  }
+  // Разгар лета (июль-август): жара
+  else if (m === 7 || m === 8) {
+    out.push({ icon: "💧", text: "Разгар лета — в жару земля сохнет быстрее, чаще заглядывайте в поддоны и проверяйте, не пора ли полить." });
+  }
+  // Ранняя осень (сентябрь): сбор урожая тепла
+  else if (m === 9) {
+    out.push({ icon: "🍂", text: "Ранняя осень — сокращайте подкормки, растения готовятся к отдыху. Следите за первыми холодными ночами." });
+  }
+  // Отопительный сезон (октябрь-ноябрь): сухой воздух
+  else if ((m === 10 || m === 11) && hasHumid) {
+    out.push({ icon: "🔥", text: "Включается отопление — воздух становится сухим, влаголюбивым тяжело. Чаще опрыскивайте или отставьте от батарей." });
+  }
+  // Зима (декабрь-февраль): покой
+  else if (m === 12 || m === 1 || m === 2) {
+    out.push({ icon: "❄️", text: "Зима — период покоя: света мало, поливайте реже и не подкармливайте, берегите от холодных сквозняков у окон." });
+  }
+  return out;
+}
 const daysSince = (iso) => {
   if (!iso) return null;
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
@@ -1457,6 +1490,17 @@ function MyGarden() {
             onWater={waterPlant} onFeed={feedPlant}
             onMist={mistPlant} onWipe={wipePlant}
             weatherHintsList={weather ? weatherHints(weather, plants.some((p) => p.location === "balcony")) : []}
+            seasonalList={seasonalNotes(plants)}
+            quarantineList={plants.filter((p) => {
+              const d = daysSince(p.addedAt);
+              if (d === null || d > 14) return false;
+              // если указано «у вас с …» и это прошлый месяц или раньше — растение не новичок
+              if (p.ownedSince) {
+                const nowM = new Date().toISOString().slice(0, 7); // YYYY-MM
+                if (p.ownedSince < nowM) return false;
+              }
+              return true;
+            })}
             onOpen={(id) => { setOpenId(id); setView("plant"); }} />
         )}
         {view === "add" && (
@@ -1793,7 +1837,7 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
 }
 
 /* ─────────────────────────  Сегодня  ───────────────────────── */
-function TodayView({ dueList, balconyAutumn, plants, dueInfoFn, fact, weatherHintsList, onVacation, onWater, onFeed, onMist, onWipe, onOpen }) {
+function TodayView({ dueList, balconyAutumn, plants, dueInfoFn, fact, weatherHintsList, seasonalList, quarantineList, onVacation, onWater, onFeed, onMist, onWipe, onOpen }) {
   const factPlant = fact && plants.find((p) => p.id === fact.plantId);
   const balconyPlants = plants.filter((p) => p.location === "balcony");
   const schedule = plants
@@ -1835,6 +1879,34 @@ function TodayView({ dueList, balconyAutumn, plants, dueInfoFn, fact, weatherHin
         <div style={{ marginBottom: 16 }}>
           {weatherHintsList.map((h, k) => (
             <div key={k} style={{ display: "flex", gap: 10, alignItems: "flex-start", background: C.waterSoft + "99", border: `1px solid ${C.line}`, borderRadius: 14, padding: "11px 14px", marginBottom: 8 }}>
+              <span style={{ fontSize: 18, lineHeight: 1.3 }}>{h.icon}</span>
+              <span style={{ ...sans, fontSize: 14, color: C.ink, lineHeight: 1.45 }}>{h.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {quarantineList && quarantineList.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          {quarantineList.map((p) => {
+            const d = daysSince(p.addedAt);
+            const left = 14 - d;
+            return (
+              <div key={p.id} onClick={() => onOpen(p.id)} style={{ display: "flex", gap: 10, alignItems: "flex-start", background: C.blossomSoft + "88", border: `1px solid ${C.line}`, borderRadius: 14, padding: "11px 14px", marginBottom: 8, cursor: "pointer" }}>
+                <span style={{ fontSize: 18, lineHeight: 1.3 }}>🔍</span>
+                <span style={{ ...sans, fontSize: 14, color: C.ink, lineHeight: 1.45 }}>
+                  <b style={{ ...serif, fontWeight: 400 }}>{p.nickname || p.name}</b> — новичок, {left > 0 ? `ещё ${left} ${plural(left, "день", "дня", "дней")} карантина` : "карантин завершается"}. Держите в стороне от других и посматривайте на листья: нет ли вредителей.
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {seasonalList && seasonalList.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          {seasonalList.map((h, k) => (
+            <div key={k} style={{ display: "flex", gap: 10, alignItems: "flex-start", background: C.sageSoft + "77", border: `1px solid ${C.line}`, borderRadius: 14, padding: "11px 14px", marginBottom: 8 }}>
               <span style={{ fontSize: 18, lineHeight: 1.3 }}>{h.icon}</span>
               <span style={{ ...sans, fontSize: 14, color: C.ink, lineHeight: 1.45 }}>{h.text}</span>
             </div>
@@ -3227,7 +3299,110 @@ function InventoryView({ inventory, plants, journal, apartment, onAdd, onPatch, 
 }
 
 /* ─────────────────────────  Статистика сада  ───────────────────────── */
+async function makeGardenPostcard(plants) {
+  // грузим картинку с промисом
+  const loadImg = (src) => new Promise((res) => {
+    if (!src) { res(null); return; }
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = () => res(null);
+    im.src = src;
+  });
+
+  const withPhoto = plants.filter((p) => p.photo);
+  const pool = (withPhoto.length >= 4 ? withPhoto : plants).slice(0, 9);
+  const cols = pool.length <= 1 ? 1 : pool.length <= 4 ? 2 : 3;
+  const rows = Math.ceil(pool.length / cols);
+
+  const pad = 48;
+  const cell = 240;
+  const gap = 16;
+  const labelH = 40;
+  const headH = 96;
+  const footH = 64;
+  const W = pad * 2 + cols * cell + (cols - 1) * gap;
+  const H = pad + headH + rows * (cell + labelH) + (rows - 1) * gap + footH;
+
+  const cv = document.createElement("canvas");
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext("2d");
+
+  // фон — бумага
+  ctx.fillStyle = "#f7f6ef";
+  ctx.fillRect(0, 0, W, H);
+
+  // заголовок
+  ctx.fillStyle = "#2e4433";
+  ctx.font = "42px Georgia, serif";
+  ctx.textAlign = "center";
+  ctx.fillText("Мой сад", W / 2, pad + 48);
+  ctx.fillStyle = "#4a6b4f";
+  ctx.font = "20px -apple-system, sans-serif";
+  ctx.fillText(`${plants.length} ${plural(plants.length, "растение", "растения", "растений")} с любовью`, W / 2, pad + 78);
+
+  const imgs = await Promise.all(pool.map((p) => loadImg(p.photo)));
+
+  pool.forEach((p, i) => {
+    const c = i % cols;
+    const r = Math.floor(i / cols);
+    const x = pad + c * (cell + gap);
+    const y = pad + headH + r * (cell + labelH + gap);
+
+    // рамка-подложка
+    ctx.fillStyle = "#fffef9";
+    roundRect(ctx, x, y, cell, cell + labelH, 18);
+    ctx.fill();
+
+    const im = imgs[i];
+    if (im) {
+      ctx.save();
+      roundRect(ctx, x + 8, y + 8, cell - 16, cell - 16, 12);
+      ctx.clip();
+      // покрытие cover
+      const s = Math.max((cell - 16) / im.width, (cell - 16) / im.height);
+      const iw = im.width * s, ih = im.height * s;
+      ctx.drawImage(im, x + 8 + (cell - 16 - iw) / 2, y + 8 + (cell - 16 - ih) / 2, iw, ih);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = "#dce6d5";
+      roundRect(ctx, x + 8, y + 8, cell - 16, cell - 16, 12);
+      ctx.fill();
+      ctx.fillStyle = "#7d9b76";
+      ctx.font = "48px serif";
+      ctx.textAlign = "center";
+      ctx.fillText("🌿", x + cell / 2, y + cell / 2 + 8);
+    }
+
+    // подпись
+    ctx.fillStyle = "#2e4433";
+    ctx.font = "18px Georgia, serif";
+    ctx.textAlign = "center";
+    let name = p.nickname || p.name;
+    if (name.length > 20) name = name.slice(0, 19) + "…";
+    ctx.fillText(name, x + cell / 2, y + cell + 26);
+  });
+
+  // подвал
+  ctx.fillStyle = "#7d9b76";
+  ctx.font = "italic 17px Georgia, serif";
+  ctx.textAlign = "center";
+  ctx.fillText("собран в приложении «Мой сад» 🌿", W / 2, H - 28);
+
+  return cv;
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
 function StatsView({ plants, journal, onOpen }) {
+  const [cardBusy, setCardBusy] = useState(false);
   if (plants.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: "60px 20px" }}>
@@ -3315,6 +3490,31 @@ function StatsView({ plants, journal, onOpen }) {
           характеры: {diff.simple} {plural(diff.simple, "простой", "простых", "простых")} · {diff.mid} {plural(diff.mid, "средний", "средних", "средних")} · {diff.hard} {plural(diff.hard, "капризный", "капризных", "капризных")}
         </p>
       )}
+
+      <div style={{ marginBottom: 16 }}>
+        <Btn small tone="water" onClick={async () => {
+          setCardBusy(true);
+          try {
+            const cv = await makeGardenPostcard(plants);
+            cv.toBlob((blob) => {
+              if (!blob) { setCardBusy(false); return; }
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "мой-сад-открытка.png";
+              document.body.appendChild(a);
+              a.click();
+              setTimeout(() => { try { document.body.removeChild(a); } catch (e) {} URL.revokeObjectURL(url); }, 1500);
+              setCardBusy(false);
+            }, "image/png");
+          } catch (e) { setCardBusy(false); }
+        }} disabled={cardBusy}>
+          {cardBusy ? "Рисую открытку…" : "🖼 Открытка сада"}
+        </Btn>
+        <div style={{ ...sans, fontSize: 12, color: C.sage, marginTop: 4 }}>
+          Коллаж из фото растений с именами — можно поставить на обои или отправить близким.
+        </div>
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10 }}>
         <StatCard icon="🌿" value={plants.length} label={`${plural(plants.length, "растение", "растения", "растений")} всего`} />
         <StatCard icon="🏠" value={home} label="живут дома" />
