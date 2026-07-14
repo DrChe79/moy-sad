@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-16:53";
+const APP_VERSION = "14.07-17:00";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -398,10 +398,17 @@ async function askClaude(messages, maxTokens) {
 }
 
 function parseJson(text) {
-  const clean = text.replace(/```json|```/g, "").trim();
+  let clean = text.replace(/```json|```/g, "").trim();
   const start = clean.indexOf("{");
   const end = clean.lastIndexOf("}");
-  return JSON.parse(clean.slice(start, end + 1));
+  let body = clean.slice(start, end + 1);
+  // чистим типичные огрехи ИИ: многоточия-заглушки и висячие запятые перед ] или }
+  body = body
+    .replace(/,\s*\.\.\.\s*/g, " ")     // "a", ... →  "a"
+    .replace(/\[\s*\.\.\.\s*\]/g, "[]")  // [ ... ] → []
+    .replace(/\.\.\./g, "")               // прочие многоточия
+    .replace(/,\s*([\]}])/g, "$1");       // висячая запятая перед ] или }
+  return JSON.parse(body);
 }
 
 /* Если ответ оборвался на середине — собираем валидный JSON из целых кусков */
@@ -545,14 +552,14 @@ async function vacationPrep(plants, apartment, days, weatherNote) {
 Квартира: ${apartment}${weatherNote ? "\nПогода на ближайшие дни: " + weatherNote : ""}
 Растения:
 ${roster}
-Дай практичные советы по подготовке, сгруппированные так (пропускай пустые группы):
+Дай практичные советы по подготовке, сгруппированные по четырём ключам (если группа не нужна — пустой массив []):
 - "beforeLeaving": что сделать перед самым отъездом (напр. полить всех обильно, кого именно)
 - "fromSun": кого убрать от прямого солнца на время отсутствия (если жарко/солнечно и есть уязвимые)
 - "group": каких растений и зачем стоит сдвинуть вместе (влаголюбивых — для общего микроклимата)
 - "autowater": кому за ${days} дн. точно понадобится автополив/фитиль (тем, у кого полив чаще, чем длится отъезд)
-Ответь ТОЛЬКО валидным JSON без markdown:
-{"beforeLeaving": ["короткий совет", ...], "fromSun": [...], "group": [...], "autowater": [...]}
-Каждый пункт — одна короткая фраза по-русски с конкретными именами растений. Если группа не нужна — пустой массив.`;
+Ответь ТОЛЬКО валидным JSON без markdown, без комментариев и без многоточий. Пример структуры:
+{"beforeLeaving": ["полить Моню обильно"], "fromSun": [], "group": [], "autowater": []}
+Каждый пункт — одна короткая фраза по-русски с конкретными именами растений.`;
   const text = await askClaude([{ role: "user", content: prompt }], 1400);
   return parseJsonSalvage(text);
 }
