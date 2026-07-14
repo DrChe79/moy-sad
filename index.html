@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-17:00";
+const APP_VERSION = "14.07-17:06";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -542,25 +542,31 @@ function buildGardenContext(plants, journal) {
 }
 
 async function vacationPrep(plants, apartment, days, weatherNote) {
+  // компактный ростер: только то, что нужно для подготовки (имя, где, как часто пить, солнце)
   const roster = plants
     .map((p) => {
       const c = p.care || {};
-      return `- ${p.nickname || p.name}${c.latinName ? " (" + c.latinName + ")" : ""}: ${p.location === "balcony" ? "балкон" : "дома"}${p.spot ? ", " + p.spot : ""}; полив летом раз в ${c.wateringSummer || "?"} дн.${c.light ? "; свет: " + c.light : ""}${c.humidity ? "; влажность: " + c.humidity : ""}`;
+      const sun = c.light && /солн|прям/i.test(c.light) ? " ☀" : "";
+      return `${p.nickname || p.name} — ${p.location === "balcony" ? "балкон" : "дома"}, полив ~${c.wateringSummer || "?"}д${sun}`;
     })
     .join("\n");
-  const prompt = `Ты — заботливый садовник. Хозяева уезжают на ${days} ${plural(days, "день", "дня", "дней")}. Помоги подготовить сад к отъезду.
-Квартира: ${apartment}${weatherNote ? "\nПогода на ближайшие дни: " + weatherNote : ""}
-Растения:
+  const thirsty = plants
+    .filter((p) => p.care && p.care.wateringSummer && p.care.wateringSummer < days)
+    .map((p) => p.nickname || p.name);
+  const prompt = `Ты — заботливый садовник. Хозяева уезжают на ${days} ${plural(days, "день", "дня", "дней")}. Помоги подготовить сад (${plants.length} растений) к отъезду.
+Квартира: ${apartment}${weatherNote ? "\nПогода: " + weatherNote : ""}
+Растения (☀ = любит прямое солнце):
 ${roster}
-Дай практичные советы по подготовке, сгруппированные по четырём ключам (если группа не нужна — пустой массив []):
-- "beforeLeaving": что сделать перед самым отъездом (напр. полить всех обильно, кого именно)
-- "fromSun": кого убрать от прямого солнца на время отсутствия (если жарко/солнечно и есть уязвимые)
-- "group": каких растений и зачем стоит сдвинуть вместе (влаголюбивых — для общего микроклимата)
-- "autowater": кому за ${days} дн. точно понадобится автополив/фитиль (тем, у кого полив чаще, чем длится отъезд)
-Ответь ТОЛЬКО валидным JSON без markdown, без комментариев и без многоточий. Пример структуры:
-{"beforeLeaving": ["полить Моню обильно"], "fromSun": [], "group": [], "autowater": []}
-Каждый пункт — одна короткая фраза по-русски с конкретными именами растений.`;
-  const text = await askClaude([{ role: "user", content: prompt }], 1400);
+${thirsty.length ? "Пить будут просить чаще, чем длится поездка: " + thirsty.join(", ") + "." : ""}
+Дай КОРОТКИЕ практичные советы по четырём ключам (если группа не нужна — пустой массив []):
+- "beforeLeaving": что сделать перед самым отъездом (обычно: полить всех обильно; можно выделить особо жаждущих)
+- "fromSun": кого убрать от прямого солнца (если жарко и есть уязвимые ☀-растения)
+- "group": какие растения сдвинуть вместе и зачем (влаголюбивые — общий микроклимат)
+- "autowater": кому нужен автополив/фитиль на время поездки
+Не перечисляй все 44 растения — говори группами и называй лишь ключевые примеры. Максимум 3-4 пункта в каждом ключе.
+Ответь ТОЛЬКО валидным JSON без markdown, без комментариев и без многоточий. Пример:
+{"beforeLeaving": ["полить весь сад обильно накануне"], "fromSun": [], "group": [], "autowater": []}`;
+  const text = await askClaude([{ role: "user", content: prompt }], 1000);
   return parseJsonSalvage(text);
 }
 
@@ -4241,7 +4247,7 @@ function VacationView({ plants, dueInfoFn, apartment, weather, onBack, showToast
       setPrep(r || {});
     } catch (e) {
       setPrep(null);
-      showToast("Не удалось составить — попробуйте ещё раз");
+      showToast("Сбой: " + (e && e.message ? e.message : String(e)).slice(0, 80));
     }
     setPrepBusy(false);
   }
