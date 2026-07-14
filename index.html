@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-17:06";
+const APP_VERSION = "14.07-17:18";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -4202,6 +4202,20 @@ function ProfileSetup({ profile, firstRun, onSave, onCancel, onImport, plants, s
 function VacationView({ plants, dueInfoFn, apartment, weather, onBack, showToast }) {
   const [prep, setPrep] = useState(null);
   const [prepBusy, setPrepBusy] = useState(false);
+  const [showCal, setShowCal] = useState(false);
+
+  // Восстанавливаем последнюю подготовку, если даты совпадают
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await appStorage.get("garden:vacationPrep");
+        const saved = JSON.parse(r.value);
+        if (saved && saved.from === from && saved.to === to && saved.prep) {
+          setPrep(saved.prep);
+        }
+      } catch (e) { /* нет сохранённой */ }
+    })();
+  }, []);
   const iso = (d) => {
     const x = new Date(d);
     x.setMinutes(x.getMinutes() - x.getTimezoneOffset());
@@ -4245,9 +4259,10 @@ function VacationView({ plants, dueInfoFn, apartment, weather, onBack, showToast
       const wNote = weather ? `днём до +${Math.round(weather.tmax)}°, ночью ${Math.round(weather.tmin)}°` : "";
       const r = await vacationPrep(plants, apartment, tripDays, wNote);
       setPrep(r || {});
+      try { await appStorage.set("garden:vacationPrep", JSON.stringify({ from, to, prep: r || {} })); } catch (e) {}
     } catch (e) {
       setPrep(null);
-      showToast("Сбой: " + (e && e.message ? e.message : String(e)).slice(0, 80));
+      showToast("Не удалось составить — попробуйте ещё раз");
     }
     setPrepBusy(false);
   }
@@ -4335,11 +4350,11 @@ ${resting.length ? `<h2>Не трогать</h2><div class="d">Полив в э�
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
         <label style={{ flex: 1, minWidth: 140 }}>
           <div style={{ ...sans, fontSize: 12, color: C.moss, marginBottom: 4 }}>Уезжаем</div>
-          <input type="date" style={inputStyle} value={from} onChange={(e) => setFrom(e.target.value)} />
+          <input type="date" style={inputStyle} value={from} onChange={(e) => { setFrom(e.target.value); setPrep(null); }} />
         </label>
         <label style={{ flex: 1, minWidth: 140 }}>
           <div style={{ ...sans, fontSize: 12, color: C.moss, marginBottom: 4 }}>Возвращаемся</div>
-          <input type="date" style={inputStyle} value={to} onChange={(e) => setTo(e.target.value)} />
+          <input type="date" style={inputStyle} value={to} onChange={(e) => { setTo(e.target.value); setPrep(null); }} />
         </label>
       </div>
 
@@ -4379,25 +4394,32 @@ ${resting.length ? `<h2>Не трогать</h2><div class="d">Полив в э�
         </p>
       ) : (
         <div>
-          <div style={{ background: "#fffef9", border: `1px solid ${C.line}`, borderRadius: 16, padding: 16, marginBottom: 14 }}>
-            {days.map((k) => (
-              <div key={k} style={{ ...sans, fontSize: 14, padding: "5px 0", borderBottom: `1px solid ${C.line}` }}>
-                <b style={{ ...serif, fontWeight: 400 }}>{fmtDay(k)}:</b>{" "}
-                <span style={{ color: C.moss }}>
-                  {byDate[k].map((p) => (p.nickname || p.name) + (p.spot ? ` (${p.spot})` : "")).join(", ")}
-                </span>
+          <Btn tone="ghost" onClick={() => setShowCal(!showCal)}>
+            {showCal ? "▾ Скрыть календарь полива" : `▸ Календарь полива по датам (${days.length} ${plural(days.length, "день", "дня", "дней")})`}
+          </Btn>
+          {showCal && (
+            <div className="reveal" style={{ marginTop: 12 }}>
+              <div style={{ background: "#fffef9", border: `1px solid ${C.line}`, borderRadius: 16, padding: 16, marginBottom: 14 }}>
+                {days.map((k) => (
+                  <div key={k} style={{ ...sans, fontSize: 14, padding: "5px 0", borderBottom: `1px solid ${C.line}` }}>
+                    <b style={{ ...serif, fontWeight: 400 }}>{fmtDay(k)}:</b>{" "}
+                    <span style={{ color: C.moss }}>
+                      {byDate[k].map((p) => (p.nickname || p.name) + (p.spot ? ` (${p.spot})` : "")).join(", ")}
+                    </span>
+                  </div>
+                ))}
+                {resting.length > 0 && (
+                  <div style={{ ...sans, fontSize: 13, color: C.sage, marginTop: 8 }}>
+                    Полив не понадобится: {resting.map((p) => p.nickname || p.name).join(", ")}.
+                  </div>
+                )}
               </div>
-            ))}
-            {resting.length > 0 && (
-              <div style={{ ...sans, fontSize: 13, color: C.sage, marginTop: 8 }}>
-                Полив не понадобится: {resting.map((p) => p.nickname || p.name).join(", ")}.
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <Btn tone="water" onClick={copyText}>📋 Скопировать для мессенджера</Btn>
+                <Btn tone="ghost" onClick={openPrint}>🖨 Открыть для печати</Btn>
               </div>
-            )}
-          </div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <Btn tone="water" onClick={copyText}>📋 Скопировать для мессенджера</Btn>
-            <Btn tone="ghost" onClick={openPrint}>🖨 Открыть для печати</Btn>
-          </div>
+            </div>
+          )}
         </div>
       )}
     </div>
