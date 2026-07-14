@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-17:23";
+const APP_VERSION = "14.07-17:36";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -201,8 +201,8 @@ input:focus,select:focus,textarea:focus{border-color:${C.moss} !important;box-sh
 .toastin{animation:gUp .22s ease}
 .viewin{animation:gView .26s ease}
 .leaf-float{animation:gFloat 5s ease-in-out infinite;transform-origin:center}
-.card-soft{box-shadow:0 1px 2px rgba(46,68,51,.04)}
-.card-soft:hover{box-shadow:0 4px 14px rgba(46,68,51,.10)}
+.card-soft{box-shadow:0 1px 2px rgba(46,68,51,.05), 0 4px 16px rgba(46,68,51,.05)}
+.card-soft:hover{box-shadow:0 2px 4px rgba(46,68,51,.07), 0 8px 28px rgba(46,68,51,.10)}
 @media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
 `;
 
@@ -809,20 +809,24 @@ function Fold({ title, count, defaultOpen, children }) {
 
 function Btn({ onClick, children, tone = "moss", disabled, small }) {
   const bg = { moss: C.moss, blossom: C.blossom, water: C.water, ghost: "transparent" }[tone];
+  const isGhost = tone === "ghost";
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       style={{
         ...sans,
-        padding: small ? "7px 14px" : "11px 20px",
-        borderRadius: 12,
-        border: tone === "ghost" ? `1px solid ${C.line}` : "none",
+        padding: small ? "8px 16px" : "12px 22px",
+        minHeight: small ? 36 : 44,
+        borderRadius: 999,
+        border: isGhost ? `1px solid ${C.line}` : "none",
         background: disabled ? C.line : bg,
-        color: tone === "ghost" ? C.moss : C.paper,
-        fontSize: small ? 13 : 15,
+        color: isGhost ? C.moss : C.paper,
+        fontSize: small ? 14 : 15,
         cursor: disabled ? "default" : "pointer",
         fontWeight: 500,
+        letterSpacing: "-0.01em",
+        boxShadow: isGhost || disabled ? "none" : "0 1px 2px rgba(46,68,51,.10), 0 2px 8px rgba(46,68,51,.06)",
       }}
     >
       {children}
@@ -2550,21 +2554,21 @@ function PlantView({ plant, apartment, invText, inventory, allPlants, onOpenPlan
 
   return (
     <div>
-      <button onClick={onBack} style={{ ...sans, background: "none", border: "none", color: C.moss, cursor: "pointer", fontSize: 14, padding: 0, marginBottom: 14 }}>
+      <button onClick={onBack} style={{ ...sans, background: "none", border: "none", color: C.moss, cursor: "pointer", fontSize: 15, padding: "4px 0", marginBottom: 20, fontWeight: 500 }}>
         ← в сад
       </button>
 
-      <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
-        <PlantThumb plant={plant} size={110} radius={20} />
+      <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <PlantThumb plant={plant} size={120} radius={24} />
         <div style={{ flex: 1, minWidth: 220 }}>
-          <h2 style={{ ...serif, fontWeight: 400, fontSize: 26, margin: 0 }}>
+          <h2 style={{ ...serif, fontWeight: 400, fontSize: 34, margin: "2px 0 2px", letterSpacing: "-0.02em", lineHeight: 1.1, color: C.ink }}>
             {plant.nickname || plant.name}
           </h2>
-          <div style={{ ...serif, fontStyle: "italic", color: C.sage, fontSize: 15 }}>
+          <div style={{ ...serif, fontStyle: "italic", color: C.sage, fontSize: 16, marginTop: 2 }}>
             {plant.nickname ? `${plant.name} · ` : ""}{plant.care?.latinName}
           </div>
           {(parent || children.length > 0) && (
-            <div style={{ ...sans, fontSize: 13, color: C.moss, marginTop: 4 }}>
+            <div style={{ ...sans, fontSize: 13, color: C.moss, marginTop: 8 }}>
               {parent && (
                 <span>
                   🌱 отросток{" "}
@@ -2591,7 +2595,7 @@ function PlantView({ plant, apartment, invText, inventory, allPlants, onOpenPlan
               )}
             </div>
           )}
-          <div style={{ ...sans, fontSize: 13, color: C.moss, marginTop: 6 }}>
+          <div style={{ ...sans, fontSize: 14, color: C.moss, marginTop: 10, lineHeight: 1.5 }}>
             {plant.location === "balcony" ? "🌤 балкон" : "🏠 дома"}
             {plant.spot ? ` · ${plant.spot}` : ""} · {plant.ownedSince ? `у вас с ${fmtMonth(plant.ownedSince)}` : `в каталоге с ${fmtDate(plant.addedAt)}`}
           </div>
@@ -2644,7 +2648,7 @@ function PlantView({ plant, apartment, invText, inventory, allPlants, onOpenPlan
               </div>
             </div>
           )}
-          <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 10, marginTop: 20, flexWrap: "wrap" }}>
             <Btn small tone="water" onClick={onWater}>💧 Полить</Btn>
             <Btn small tone="moss" onClick={onFeed}>🌿 Подкормить</Btn>
             <Btn small tone="ghost" onClick={() => setMoving(!moving)}>🪴 Переставить</Btn>
