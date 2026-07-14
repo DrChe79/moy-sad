@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-12:29";
+const APP_VERSION = "14.07-14:37";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -84,6 +84,18 @@ const fmtDate = (iso) =>
 
 /* Подпись под названием: единый ориентир вида — русское название (commonName),
    иначе латинское. Одинаково для всех растений вида, даже если дублирует заголовок. */
+function shortSpot(spot) {
+  if (!spot) return "";
+  // убираем ориентацию окон и освещённость в скобках, оставляя помещение + уточнение
+  return spot
+    .replace(/\s*\(.*?\)\s*/g, " ")        // "(яркий рассеянный свет)"
+    .replace(/,?\s*окна на[^,]*/gi, "")       // ", окна на запад"
+    .replace(/,?\s*не у окна/gi, "")          // ", не у окна"
+    .replace(/\s{2,}/g, " ")
+    .replace(/[,\s]+$/,"")
+    .trim();
+}
+
 function speciesSubtitle(p) {
   const common = ((p.care && p.care.commonName) || "").trim();
   const latin = ((p.care && p.care.latinName) || "").trim();
@@ -1746,7 +1758,7 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
                 </div>
                 <div style={{ ...sans, fontSize: 12, color: C.moss, marginTop: 4 }}>
                   {p.location === "balcony" ? "🌤 балкон" : "🏠 дома"}
-                  {p.spot ? ` · ${p.spot}` : ""}
+                  {shortSpot(p.spot) ? ` · ${shortSpot(p.spot)}` : ""}
                 </div>
                 {(d.waterDue || d.feedDue) && (
                   <div style={{ ...sans, fontSize: 12, color: C.blossom, marginTop: 4 }}>
