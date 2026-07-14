@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-12:14";
+const APP_VERSION = "14.07-12:24";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -1255,15 +1255,25 @@ function MyGarden() {
 
   /* ── экспорт / импорт ── */
   function exportGarden() {
-    const blob = new Blob([JSON.stringify({ plants, journal, wishlist, profile, needs, inventory }, null, 2)], {
-      type: "application/json",
-    });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "мой-сад.json";
-    a.click();
-    localStorage.setItem("garden:lastBackup", String(Date.now()));
-    setLastBackup(Date.now());
+    try {
+      const data = JSON.stringify({ plants, journal, wishlist, profile, needs, inventory }, null, 2);
+      const blob = new Blob([data], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "мой-сад.json";
+      a.rel = "noopener";
+      document.body.appendChild(a); // некоторые браузеры игнорируют click() у ссылки вне DOM
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 1500);
+      try { localStorage.setItem("garden:lastBackup", String(Date.now())); setLastBackup(Date.now()); } catch (e) {}
+      showToast("Копия сада скачана 💾");
+    } catch (e) {
+      showToast("Не удалось скачать — попробуйте из браузера, не из установленного приложения");
+    }
   }
   const importRef = useRef(null);
   async function importGarden(file) {
