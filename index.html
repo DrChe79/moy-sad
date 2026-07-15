@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "15.07-08:28";
+const APP_VERSION = "15.07-08:52";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -1630,6 +1630,7 @@ function MyGarden() {
           <GardenView
             shown={shown}
             total={plants.length}
+            allPlants={plants}
             filter={filter}
             setFilter={setFilter}
             search={search}
@@ -1927,8 +1928,28 @@ function buildSubtitleMap(plants) {
   return map;
 }
 
-function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInfo, onOpen, onAdd, onExport, onImportClick, onSettings, backupNudge }) {
+function GardenView({ shown, total, allPlants, filter, setFilter, search, setSearch, dueInfo, onOpen, onAdd, onExport, onImportClick, onSettings, backupNudge }) {
   const subtitleMap = buildSubtitleMap(shown);
+  const [cardBusy, setCardBusy] = useState(false);
+
+  async function makeCard() {
+    setCardBusy(true);
+    try {
+      const cv = await makeGardenPostcard(allPlants || shown);
+      cv.toBlob((blob) => {
+        if (!blob) { setCardBusy(false); return; }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "мой-сад-открытка.png";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { try { document.body.removeChild(a); } catch (e) {} URL.revokeObjectURL(url); }, 1500);
+        setCardBusy(false);
+      }, "image/png");
+    } catch (e) { setCardBusy(false); }
+  }
+
   if (total === 0) {
     return (
       <div style={{ textAlign: "center", padding: "70px 20px" }}>
@@ -1962,6 +1983,9 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
         <Chip active={filter === "all"} onClick={() => setFilter("all")}>Все</Chip>
         <Chip active={filter === "home"} onClick={() => setFilter("home")}>🏠 Дома</Chip>
         <Chip active={filter === "balcony"} onClick={() => setFilter("balcony")}>🌤 Балкон</Chip>
+        <Btn small tone="water" onClick={makeCard} disabled={cardBusy}>
+          {cardBusy ? "Рисую…" : "🖼 Открытка сада"}
+        </Btn>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -2019,7 +2043,7 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
         </p>
       )}
 
-      <div style={{ marginTop: 34, textAlign: "center", display: "flex", gap: 18, justifyContent: "center", flexWrap: "wrap" }}>
+      <div style={{ marginTop: 28, textAlign: "center", display: "flex", gap: 18, justifyContent: "center", flexWrap: "wrap" }}>
         <button onClick={onSettings} style={{ ...sans, background: "none", border: "none", color: C.sage, fontSize: 13, cursor: "pointer", textDecoration: "underline", padding: "9px 8px", margin: "-9px -8px" }}>
           🏡 настроить квартиру
         </button>
@@ -3658,6 +3682,69 @@ function InventoryView({ inventory, plants, journal, apartment, onAdd, onPatch, 
 }
 
 /* ─────────────────────────  Статистика сада  ───────────────────────── */
+function shuffled(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+
+/* Тематические подборки для открытки. Берём только те темы, где набирается хотя бы 3 растения,
+   и выбираем случайную — «микс» (весь сад) участвует наравне с остальными. */
+function pickPostcardTheme(plants) {
+  const withPhoto = plants.filter((p) => p.photo);
+  const base = withPhoto.length >= 4 ? withPhoto : plants;
+  const parentIds = new Set(base.filter((p) => p.parentId).map((p) => p.parentId));
+
+  const byOwned = (a, b) => ((a.ownedSince || "9999") < (b.ownedSince || "9999") ? -1 : 1);
+  const themes = [];
+
+  // Старейшины — по полю «у вас с…», самые давние
+  const elders = base.filter((p) => p.ownedSince).sort(byOwned);
+  themes.push({ key: "elders", title: "Старейшины сада", sub: "они с вами дольше всех", pool: elders });
+
+  // Новички — недавно поселились
+  const newbies = base
+    .filter((p) => { const d = daysSince(p.addedAt); return d !== null && d <= 60; })
+    .sort((a, b) => (a.addedAt < b.addedAt ? 1 : -1));
+  themes.push({ key: "newbies", title: "Мои новички", sub: "недавно поселились", pool: newbies });
+
+  // Балкон и дом
+  themes.push({ key: "balcony", title: "Балконная компания", sub: "живут на свежем воздухе", pool: shuffled(base.filter((p) => p.location === "balcony")) });
+  themes.push({ key: "home", title: "Домашние жители", sub: "уют в комнатах", pool: shuffled(base.filter((p) => p.location === "home")) });
+
+  // Мерзлявые: боятся холода — по минимальной безопасной температуре из паспорта
+  const chilly = base.filter((p) => p.care && typeof p.care.minTempC === "number" && p.care.minTempC >= 15);
+  themes.push({ key: "chilly", title: "Мерзлявые", sub: "зимой их берегут от холода", pool: shuffled(chilly) });
+
+  // Тропиканки: паспорт назначил опрыскивание
+  const tropics = base.filter((p) => p.care && p.care.mistIntervalDays);
+  themes.push({ key: "tropics", title: "Тропическая компания", sub: "любят влажный воздух", pool: shuffled(tropics) });
+
+  // Характеры
+  themes.push({ key: "capricious", title: "Капризные характеры", sub: "требуют особого внимания", pool: shuffled(base.filter((p) => /каприз/i.test((p.care && p.care.difficulty) || ""))) });
+  themes.push({ key: "easy", title: "Простые характеры", sub: "растут почти сами", pool: shuffled(base.filter((p) => /прост/i.test((p.care && p.care.difficulty) || ""))) });
+
+  // Семья: родители и их детки
+  const family = base.filter((p) => p.parentId || parentIds.has(p.id));
+  themes.push({ key: "family", title: "Семья", sub: "родители и их детки", pool: shuffled(family) });
+
+  // Годятся только темы, где есть кого показать
+  const good = themes.filter((t) => t.pool.length >= 3);
+
+  const mix = {
+    key: "mix",
+    title: "Мой сад",
+    sub: `${plants.length} ${plural(plants.length, "растение", "растения", "растений")} с любовью`,
+    pool: shuffled(base),
+  };
+  // Микс выпадает втрое чаще всех тематических вместе взятых (3 из 4 открыток — общий портрет сада)
+  if (good.length === 0 || Math.random() < 0.75) return mix;
+  return good[Math.floor(Math.random() * good.length)];
+}
+
 async function makeGardenPostcard(plants) {
   // грузим картинку с промисом
   const loadImg = (src) => new Promise((res) => {
@@ -3668,8 +3755,8 @@ async function makeGardenPostcard(plants) {
     im.src = src;
   });
 
-  const withPhoto = plants.filter((p) => p.photo);
-  const pool = (withPhoto.length >= 4 ? withPhoto : plants).slice(0, 9);
+  const theme = pickPostcardTheme(plants);
+  const pool = theme.pool.slice(0, 9);
   const cols = pool.length <= 1 ? 1 : pool.length <= 4 ? 2 : 3;
   const rows = Math.ceil(pool.length / cols);
 
@@ -3694,10 +3781,10 @@ async function makeGardenPostcard(plants) {
   ctx.fillStyle = "#2e4433";
   ctx.font = "42px Georgia, serif";
   ctx.textAlign = "center";
-  ctx.fillText("Мой сад", W / 2, pad + 48);
+  ctx.fillText(theme.title, W / 2, pad + 48);
   ctx.fillStyle = "#4a6b4f";
   ctx.font = "20px -apple-system, sans-serif";
-  ctx.fillText(`${plants.length} ${plural(plants.length, "растение", "растения", "растений")} с любовью`, W / 2, pad + 78);
+  ctx.fillText(theme.sub, W / 2, pad + 78);
 
   const imgs = await Promise.all(pool.map((p) => loadImg(p.photo)));
 
@@ -3761,7 +3848,6 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 function StatsView({ plants, journal, onOpen }) {
-  const [cardBusy, setCardBusy] = useState(false);
   if (plants.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: "60px 20px" }}>
@@ -3850,30 +3936,6 @@ function StatsView({ plants, journal, onOpen }) {
         </p>
       )}
 
-      <div style={{ marginBottom: 16 }}>
-        <Btn small tone="water" onClick={async () => {
-          setCardBusy(true);
-          try {
-            const cv = await makeGardenPostcard(plants);
-            cv.toBlob((blob) => {
-              if (!blob) { setCardBusy(false); return; }
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = "мой-сад-открытка.png";
-              document.body.appendChild(a);
-              a.click();
-              setTimeout(() => { try { document.body.removeChild(a); } catch (e) {} URL.revokeObjectURL(url); }, 1500);
-              setCardBusy(false);
-            }, "image/png");
-          } catch (e) { setCardBusy(false); }
-        }} disabled={cardBusy}>
-          {cardBusy ? "Рисую открытку…" : "🖼 Открытка сада"}
-        </Btn>
-        <div style={{ ...sans, fontSize: 12, color: C.sage, marginTop: 4 }}>
-          Коллаж из фото растений с именами — можно поставить на обои или отправить близким.
-        </div>
-      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10 }}>
         <StatCard icon="🌿" value={plants.length} label={`${plural(plants.length, "растение", "растения", "растений")} всего`} />
         <StatCard icon="🏠" value={home} label="живут дома" />
