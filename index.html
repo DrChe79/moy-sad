@@ -64,7 +64,7 @@ const C = {
   line: "#d8d6c6",
 };
 
-const APP_VERSION = "14.07-21:12";
+const APP_VERSION = "15.07-08:14";
 const serif = { fontFamily: "Georgia, 'Times New Roman', serif" };
 const sans = { fontFamily: "-apple-system, 'Segoe UI', Roboto, sans-serif" };
 
@@ -953,6 +953,7 @@ function MyGarden() {
     (async () => {
       let localStr = null;
       let localUpdated = 0;
+      let localHasProfile = false;
       try {
         const res = await appStorage.get("garden:data");
         if (res && res.value) {
@@ -964,6 +965,7 @@ function MyGarden() {
           setNeeds(d.needs || []);
           setInventory(d.inventory || []);
           setProfile(d.profile || null);
+          localHasProfile = !!d.profile;
           localUpdated = d.updatedAt || 0;
         }
       } catch (e) {
@@ -983,7 +985,9 @@ function MyGarden() {
         } catch (e) { /* синхронизация не включена */ }
       }
       if (code) setSync({ code, at: null });
-      setLoaded(true);
+      // Если код синхронизации есть, а локального сада нет (например, память устройства мала),
+      // не показываем экран регистрации — ждём облако, пока держится «сад просыпается…».
+      if (!code || localHasProfile) setLoaded(true);
 
       if (code) {
         try {
@@ -1015,7 +1019,7 @@ function MyGarden() {
               setInventory(mergedInv);
               setProfile(d.profile || null);
               const finalStr = JSON.stringify({ ...mergedData, updatedAt: d.updatedAt || Date.now() });
-              await appStorage.set("garden:data", finalStr);
+              try { await appStorage.set("garden:data", finalStr); } catch (eSave) { /* не влезло — живём из облака */ }
               setSync({ code, at: Date.now() });
               // если слияние что-то вернуло — отправим объединённую версию обратно
               if (changed) schedulePush(code, finalStr);
@@ -1028,6 +1032,7 @@ function MyGarden() {
             pushNow(code, localStr);
           }
         } catch (e) { /* офлайн — поработаем локально, подтянется позже */ }
+        setLoaded(true);
       }
     })();
   }, []);
@@ -1124,7 +1129,7 @@ function MyGarden() {
           setInventory(mergedInv);
           setProfile(d.profile || null);
           const finalStr = JSON.stringify({ ...mergedData, updatedAt: d.updatedAt || Date.now() });
-          await appStorage.set("garden:data", finalStr);
+          try { await appStorage.set("garden:data", finalStr); } catch (eSave) { /* не влезло — живём из облака */ }
           setSync({ code, at: Date.now() });
           if (changed) schedulePush(code, finalStr);
           return true;
@@ -1190,7 +1195,8 @@ function MyGarden() {
     try {
       await appStorage.set("garden:data", payload);
     } catch (e) {
-      showToast("Не удалось сохранить — проверьте связь");
+      // чаще всего это переполнение памяти устройства, а не связь
+      showToast("Память устройства заполнена — сад хранится в облаке. Удалите старые фото из галерей 📸");
     }
     if (SYNC_BASE && sync.code) schedulePush(sync.code, payload);
   }
@@ -1251,11 +1257,17 @@ function MyGarden() {
       setNeeds(d.needs || []);
       setInventory(d.inventory || []);
       setProfile(d.profile || null);
-      await appStorage.set("garden:data", j.data);
+      // Код сохраняем ПЕРВЫМ: он крошечный и влезет всегда. Если следом сад не поместится
+      // в память устройства — код останется, и при следующем открытии сад подтянется из облака сам.
       await appStorage.set("garden:sync", JSON.stringify({ code }));
       setSync({ code, at: Date.now() });
       setView("garden");
-      showToast("Сад подключён 🔗");
+      try {
+        await appStorage.set("garden:data", j.data);
+        showToast("Сад подключён 🔗");
+      } catch (e2) {
+        showToast("Сад подключён, но не помещается в память устройства — будет подгружаться из облака");
+      }
     } catch (e) {
       showToast("Не получилось — проверьте код и связь");
     }
@@ -1558,7 +1570,7 @@ function MyGarden() {
         <Watercolor />
         <div style={{ position: "relative", maxWidth: 760, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-            <h1 style={{ ...serif, fontSize: 34, margin: 0, fontWeight: 400, color: C.ink }}>
+            <h1 style={{ ...serif, fontSize: 34, margin: 0, fontWeight: 400, color: C.ink, letterSpacing: "-0.02em" }}>
               Мой сад
             </h1>
             <span style={{ ...serif, fontStyle: "italic", color: C.sage, fontSize: 15 }}>
@@ -1958,7 +1970,7 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
         />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 14 }}>
         {[...shown].sort((a, b) => {
           const ka = speciesKey((a.care && a.care.latinName) || "", a.name);
           const kb = speciesKey((b.care && b.care.latinName) || "", b.name);
@@ -1976,7 +1988,7 @@ function GardenView({ shown, total, filter, setFilter, search, setSearch, dueInf
                 textAlign: "left", background: "#fffef9",
                 border: d.waterDue ? `1.5px solid ${C.water}` : `1px solid ${C.line}`,
                 boxShadow: d.waterDue ? `0 0 0 3px ${C.waterSoft}` : undefined,
-                borderRadius: 16, padding: 12, cursor: "pointer", display: "flex", gap: 12,
+                borderRadius: 18, padding: 14, cursor: "pointer", display: "flex", gap: 14,
               }}
             >
               <PlantThumb plant={p} />
@@ -2037,7 +2049,7 @@ function TodayView({ dueList, balconyAutumn, plants, dueInfoFn, fact, weatherHin
   return (
     <div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap", margin: "4px 0 16px" }}>
-        <h2 style={{ ...serif, fontWeight: 400, fontSize: 22, margin: 0, flex: 1 }}>
+        <h2 style={{ ...serif, fontWeight: 400, fontSize: 30, margin: 0, flex: 1, letterSpacing: "-0.02em", lineHeight: 1.1, color: C.ink }}>
           {new Date().toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" })}
         </h2>
         {plants.length > 0 && (
@@ -2132,7 +2144,7 @@ function TodayView({ dueList, balconyAutumn, plants, dueInfoFn, fact, weatherHin
           if (mistDue) tasks.push("пора опрыскать");
           if (wipeDue) tasks.push("протереть листья от пыли");
           return (
-          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 12, background: "#fffef9", border: `1px solid ${C.line}`, borderRadius: 16, padding: 12, marginBottom: 10, flexWrap: "wrap" }}>
+          <div key={p.id} className="card-soft" style={{ display: "flex", alignItems: "center", gap: 14, background: "#fffef9", border: `1px solid ${C.line}`, borderRadius: 18, padding: 14, marginBottom: 10, flexWrap: "wrap" }}>
             <button onClick={() => onOpen(p.id)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
               <PlantThumb plant={p} size={54} />
             </button>
@@ -2290,7 +2302,7 @@ function AddView({ onDone, onCancel, showToast, plants, prefillName, spots, apar
 
   return (
     <div style={{ maxWidth: 480 }}>
-      <h2 style={{ ...serif, fontWeight: 400, fontSize: 22, margin: "4px 0 18px" }}>Новый житель сада</h2>
+      <h2 style={{ ...serif, fontWeight: 400, fontSize: 30, margin: "4px 0 20px", letterSpacing: "-0.02em", lineHeight: 1.1, color: C.ink }}>Новый житель сада</h2>
 
       <Field label="Можно начать с фото — вид определится сам">
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -3262,7 +3274,7 @@ function WishlistView({ wishlist, plants, journal, apartment, onAdd, onRemove, o
 
   return (
     <div style={{ maxWidth: 560 }}>
-      <h2 style={{ ...serif, fontWeight: 400, fontSize: 22, margin: "4px 0 6px" }}>Растения мечты</h2>
+      <h2 style={{ ...serif, fontWeight: 400, fontSize: 30, margin: "4px 0 8px", letterSpacing: "-0.02em", lineHeight: 1.1, color: C.ink }}>Растения мечты</h2>
       <p style={{ ...sans, fontSize: 14, color: C.moss, margin: "0 0 16px" }}>
         Записывайте, кого хочется завести. Садовник подскажет, приживётся ли мечта в ваших условиях.
       </p>
@@ -3382,7 +3394,7 @@ function NeedsView({ needs, plants, journal, apartment, invText, onAdd, onBuy, o
 
   return (
     <div style={{ maxWidth: 600 }}>
-      <h2 style={{ ...serif, fontWeight: 400, fontSize: 22, margin: "4px 0 6px" }}>Нужное для сада</h2>
+      <h2 style={{ ...serif, fontWeight: 400, fontSize: 30, margin: "4px 0 8px", letterSpacing: "-0.02em", lineHeight: 1.1, color: C.ink }}>Нужное для сада</h2>
       <p style={{ ...sans, fontSize: 14, color: C.moss, margin: "0 0 16px" }}>
         Сюда стекается всё «купить» — из карточек растений и общесадовое. Отметка ✓ уходит в дневник растения, а купленное — на соседнюю полку «Инвентарь».
       </p>
@@ -3502,7 +3514,7 @@ function InventoryView({ inventory, plants, journal, apartment, onAdd, onPatch, 
 
   return (
     <div style={{ maxWidth: 620 }}>
-      <h2 style={{ ...serif, fontWeight: 400, fontSize: 22, margin: "4px 0 6px" }}>Инвентарь сада</h2>
+      <h2 style={{ ...serif, fontWeight: 400, fontSize: 30, margin: "4px 0 8px", letterSpacing: "-0.02em", lineHeight: 1.1, color: C.ink }}>Инвентарь сада</h2>
       <p style={{ ...sans, fontSize: 14, color: C.moss, margin: "0 0 16px" }}>
         Что стоит на полке: грунты, удобрения, обработки, горшки. Садовник подскажет, кому из сада что подходит, — и будет опираться на это в советах.
       </p>
@@ -3834,7 +3846,7 @@ function StatsView({ plants, journal, onOpen }) {
 
   return (
     <div>
-      <h2 style={{ ...serif, fontWeight: 400, fontSize: 22, margin: "4px 0 6px" }}>Сад в цифрах</h2>
+      <h2 style={{ ...serif, fontWeight: 400, fontSize: 30, margin: "4px 0 8px", letterSpacing: "-0.02em", lineHeight: 1.1, color: C.ink }}>Сад в цифрах</h2>
       {diff.simple + diff.mid + diff.hard > 0 && (
         <p style={{ ...sans, fontSize: 13, color: C.moss, margin: "0 0 14px" }}>
           характеры: {diff.simple} {plural(diff.simple, "простой", "простых", "простых")} · {diff.mid} {plural(diff.mid, "средний", "средних", "средних")} · {diff.hard} {plural(diff.hard, "капризный", "капризных", "капризных")}
@@ -4440,7 +4452,7 @@ ${resting.length ? `<h2>Не трогать</h2><div class="d">Полив в э�
       <button onClick={onBack} style={{ ...sans, background: "none", border: "none", color: C.moss, cursor: "pointer", fontSize: 14, padding: 0, marginBottom: 14 }}>
         ← к сегодняшним делам
       </button>
-      <h2 style={{ ...serif, fontWeight: 400, fontSize: 22, margin: "0 0 6px" }}>Режим «отпуск» 🏖</h2>
+      <h2 style={{ ...serif, fontWeight: 400, fontSize: 30, margin: "0 0 8px", letterSpacing: "-0.02em", lineHeight: 1.1, color: C.ink }}>Режим «отпуск» 🏖</h2>
       <p style={{ ...sans, fontSize: 14, color: C.moss, margin: "0 0 16px" }}>
         Подготовка к отъезду и готовая памятка для того, кто останется поливать: что сделать перед отъездом, календарь по датам и инструкции по каждому растению.
       </p>
