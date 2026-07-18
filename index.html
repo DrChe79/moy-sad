@@ -378,7 +378,7 @@ const C = {
   sun: "#c9a15a",
   line: "#d8d6c6"
 };
-const APP_VERSION = "17.07-15:07";
+const APP_VERSION = "18.07-13:33";
 const serif = {
   fontFamily: "Georgia, 'Times New Roman', serif"
 };
@@ -7095,7 +7095,68 @@ function ProfileSetup({
     value: notes,
     onChange: e => setNotes(e.target.value),
     placeholder: "этаж и затенение (деревья, дом напротив), батареи под окнами, фитолампы, домашние животные, город…"
-  })), /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "🗓 Оптимальная схема ухода — дни, когда вам удобно заниматься садом"
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...sans,
+      fontSize: 13,
+      color: C.moss,
+      margin: "0 0 10px",
+      lineHeight: 1.5
+    }
+  }, "Полив, подкормка, опрыскивание и протирка соберутся в выбранные дни вместо ежедневной капели."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      flexWrap: "wrap",
+      alignItems: "center"
+    }
+  }, [{
+    d: 1,
+    t: "Пн"
+  }, {
+    d: 2,
+    t: "Вт"
+  }, {
+    d: 3,
+    t: "Ср"
+  }, {
+    d: 4,
+    t: "Чт"
+  }, {
+    d: 5,
+    t: "Пт"
+  }, {
+    d: 6,
+    t: "Сб"
+  }, {
+    d: 0,
+    t: "Вс"
+  }].map(({
+    d,
+    t
+  }) => /*#__PURE__*/React.createElement(Chip, {
+    key: d,
+    active: careDays.includes(d),
+    onClick: () => setCareDays(careDays.includes(d) ? careDays.filter(x => x !== d) : [...careDays, d].sort((a, b) => a - b))
+  }, t))), careDays.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10
+    }
+  }, /*#__PURE__*/React.createElement(Btn, {
+    small: true,
+    tone: "ghost",
+    onClick: () => setCareDays([])
+  }, "Убрать оптимизацию")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...sans,
+      fontSize: 12,
+      color: C.sage,
+      marginTop: 8,
+      lineHeight: 1.55
+    }
+  }, careDays.length === 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, "Сейчас задачи появляются в любой день — с большим садом это выходит почти ежедневно. Хорошо работают два дня, например ", /*#__PURE__*/React.createElement("b", null, "Пн и Чт"), ": вместо ~29 дней в месяц с лейкой останется ~9.") : /*#__PURE__*/React.createElement(React.Fragment, null, "Уход показывается только в эти дни (", careDays.length, " в неделю). Растение попадает в тот день, который ближе к сроку — обычно отклонение не больше суток, в безопасную сторону. Сильно просроченное покажем в любой день."))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 10,
@@ -7190,82 +7251,6 @@ function ProfileSetup({
       }
     }, "Переставить сюда"));
   }))), !firstRun && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 28,
-      paddingTop: 18,
-      borderTop: `1px solid ${C.line}`
-    }
-  }, /*#__PURE__*/React.createElement("h3", {
-    style: {
-      ...serif,
-      fontWeight: 400,
-      fontSize: 18,
-      margin: "0 0 8px"
-    }
-  }, "🗓 Оптимальная схема ухода"), /*#__PURE__*/React.createElement("p", {
-    style: {
-      ...sans,
-      fontSize: 13,
-      color: C.moss,
-      margin: "0 0 10px",
-      lineHeight: 1.5
-    }
-  }, "Выберите дни, когда вам удобно заниматься садом — полив, подкормка, опрыскивание и протирка соберутся в них вместо ежедневной капели."), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 6,
-      flexWrap: "wrap",
-      alignItems: "center"
-    }
-  }, [{
-    d: 1,
-    t: "Пн"
-  }, {
-    d: 2,
-    t: "Вт"
-  }, {
-    d: 3,
-    t: "Ср"
-  }, {
-    d: 4,
-    t: "Чт"
-  }, {
-    d: 5,
-    t: "Пт"
-  }, {
-    d: 6,
-    t: "Сб"
-  }, {
-    d: 0,
-    t: "Вс"
-  }].map(({
-    d,
-    t
-  }) => /*#__PURE__*/React.createElement(Chip, {
-    key: d,
-    active: careDays.includes(d),
-    onClick: () => setCareDays(careDays.includes(d) ? careDays.filter(x => x !== d) : [...careDays, d].sort((a, b) => a - b))
-  }, t)), careDays.length > 0 && /*#__PURE__*/React.createElement("button", {
-    onClick: () => setCareDays([]),
-    style: {
-      ...sans,
-      background: "none",
-      border: "none",
-      color: C.water,
-      fontSize: 13,
-      cursor: "pointer",
-      textDecoration: "underline",
-      padding: "7px 6px"
-    }
-  }, "сбросить")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      ...sans,
-      fontSize: 12,
-      color: C.sage,
-      marginTop: 8,
-      lineHeight: 1.55
-    }
-  }, careDays.length === 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, "Сейчас задачи появляются в любой день — с большим садом это выходит почти ежедневно. Хорошо работают два дня, например ", /*#__PURE__*/React.createElement("b", null, "Пн и Чт"), ": вместо ~29 дней в месяц с лейкой останется ~9.") : /*#__PURE__*/React.createElement(React.Fragment, null, "Уход показывается только в эти дни (", careDays.length, " в неделю). Растение попадает в тот день, который ближе к его сроку — обычно отклонение не больше суток, и в безопасную сторону. Сильно просроченное покажем в любой день."))), !firstRun && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 28,
       paddingTop: 18,
