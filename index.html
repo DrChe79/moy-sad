@@ -429,7 +429,15 @@ function applyTheme(mode) {
   } catch (e) {/* до монтирования — не страшно */}
   return dark;
 }
-const APP_VERSION = "22.08-13:21";
+const APP_VERSION = "22.08-14:03";
+
+/* localStorage хранит строки в UTF-16 — два байта на символ. Браузерные «5 МБ»
+   это примерно 2,6 млн символов, а не 5 млн, как считала прежняя версия: порог
+   предупреждения стоял выше реального потолка и не срабатывал никогда.
+   STORE_WARN_CHARS — 80% бюджета, чтобы было время разобрать фотографии. */
+const STORE_LIMIT_CHARS = 2600000;
+const STORE_WARN_CHARS = 2100000;
+const storeBytes = chars => chars * 2;
 const serif = {
   fontFamily: "Georgia, 'Times New Roman', serif"
 };
@@ -1338,7 +1346,7 @@ function buildGardenContext(plants, journal, profile) {
     const dw = daysSince(p.lastWatered || p.addedAt);
     const iv = waterInterval(p, profile);
     const recent = (journal[p.id] || []).slice(0, 3).map(e => "".concat(fmtDate(e.date), ": ").concat(e.text)).join("; ");
-    return "\u2022 ".concat(p.name).concat(p.nickname ? " (\xAB".concat(p.nickname, "\xBB)") : "", " (").concat(p.care && p.care.latinName || "?", ") \u2014 ").concat(p.location === "balcony" ? "балкон" : "дома").concat(p.spot ? ", ".concat(p.spot) : "", "; \u043F\u043E\u043B\u0438\u0432 \u043A\u0430\u0436\u0434\u044B\u0435 ").concat(iv || "?", " \u0434\u043D. (").concat(seasonLabel(profile), "), \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0439 \u043F\u043E\u043B\u0438\u0432 ").concat(dw === null ? "неизвестно" : dw + " дн. назад", ".").concat(p.ownedSince ? " У хозяев с " + fmtMonth(p.ownedSince) + "." : "").concat(p.potCm ? " Горшок " + p.potCm + " см." : "").concat(p.lastRepot ? " Пересажено " + fmtMonth(p.lastRepot) + "." : "").concat(p.treatment && p.treatment.active ? " СЕЙЧАС ЛЕЧИТСЯ: " + p.treatment.issue + " — подкормки отменены." : "").concat(recent ? " Недавнее: " + recent : "");
+    return "\u2022 ".concat(p.name).concat(p.nickname ? " (\xAB".concat(p.nickname, "\xBB)") : "", " (").concat(p.care && p.care.latinName || "?", ") \u2014 ").concat(p.location === "balcony" ? "балкон" : "дома").concat(p.spot ? ", ".concat(p.spot) : "", "; \u043F\u043E\u043B\u0438\u0432 \u043A\u0430\u0436\u0434\u044B\u0435 ").concat(iv || "?", " \u0434\u043D. (").concat(seasonLabel(profile), "), \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0439 \u043F\u043E\u043B\u0438\u0432 ").concat(dw === null ? "неизвестно" : dw + " дн. назад", ".").concat(p.ownedSince ? " У хозяев с " + fmtMonth(p.ownedSince) + "." : "").concat(p.potCm ? " Горшок " + p.potCm + " см." : "").concat(p.lastRepot ? " Пересажено " + fmtMonth(p.lastRepot) + "." : "").concat(p.treatment && p.treatment.active ? " СЕЙЧАС ЛЕЧИТСЯ: " + p.treatment.issue + " — подкормки отменены." : "").concat(p.story ? " Личная история: " + String(p.story).slice(0, 220) : "").concat(recent ? " Недавнее: " + recent : "");
   });
   return lines.join("\n");
 }
@@ -2960,9 +2968,12 @@ function MyGarden() {
       ...next,
       updatedAt: Date.now()
     });
-    if (payload.length > 4500000 && !sizeWarned.current) {
+    if (payload.length > STORE_WARN_CHARS && !sizeWarned.current) {
       sizeWarned.current = true;
       showToast("Памяти осталось мало — загляните в «Место в памяти» в настройках");
+    } else if (payload.length < STORE_WARN_CHARS * 0.9) {
+      /* Разобрали фотографии — предупреждение снова заряжено */
+      sizeWarned.current = false;
     }
     try {
       await appStorage.set("garden:data", payload);
@@ -6683,8 +6694,16 @@ function PlantView(props) {
     setCareEdit = _useState160[1];
   const _useState161 = useState(false),
     _useState162 = _slicedToArray(_useState161, 2),
-    cardBusy = _useState162[0],
-    setCardBusy = _useState162[1];
+    storyEdit = _useState162[0],
+    setStoryEdit = _useState162[1];
+  const _useState163 = useState(""),
+    _useState164 = _slicedToArray(_useState163, 2),
+    storyText = _useState164[0],
+    setStoryText = _useState164[1];
+  const _useState165 = useState(false),
+    _useState166 = _slicedToArray(_useState165, 2),
+    cardBusy = _useState166[0],
+    setCardBusy = _useState166[1];
   const galFileRef = useRef(null);
   const galCamRef = useRef(null);
   const diagRef = useRef(null);
@@ -6694,6 +6713,7 @@ function PlantView(props) {
   useEffect(() => {
     setQa(plant.qa || []);
     setTab("care");
+    setStoryEdit(false);
   }, [plant.id]);
   const parent = plant.parentId && (allPlants || []).find(x => x.id === plant.parentId);
   const children = (allPlants || []).filter(x => x.parentId === plant.id);
@@ -6989,7 +7009,119 @@ function PlantView(props) {
     small: true,
     tone: "ghost",
     onClick: onRestore
-  }, "\u0412\u0435\u0440\u043D\u0443\u0442\u044C \u0432 \u0441\u0430\u0434")))), !isArchived && /*#__PURE__*/React.createElement("div", {
+  }, "\u0412\u0435\u0440\u043D\u0443\u0442\u044C \u0432 \u0441\u0430\u0434")))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 16,
+      background: C.sageSoft,
+      border: "1px solid ".concat(C.line),
+      borderRadius: R.md,
+      padding: "12px 14px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "sparkle",
+    size: 15,
+    color: C.sageText
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...sans,
+      fontSize: 11.5,
+      letterSpacing: "0.09em",
+      textTransform: "uppercase",
+      color: C.sageText
+    }
+  }, "\u0418\u0441\u0442\u043E\u0440\u0438\u044F"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: 1
+    }
+  }), !storyEdit && /*#__PURE__*/React.createElement(Link, {
+    onClick: () => {
+      setStoryText(plant.story || "");
+      setStoryEdit(true);
+    }
+  }, plant.story ? "изменить" : "рассказать")), storyEdit ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 8
+    }
+  }, /*#__PURE__*/React.createElement("textarea", {
+    value: storyText,
+    onChange: e => setStoryText(e.target.value.slice(0, 600)),
+    rows: 4,
+    "aria-label": "\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u044F",
+    placeholder: "\u041E\u0442\u043A\u0443\u0434\u0430 \u043F\u043E\u044F\u0432\u0438\u043B\u0441\u044F, \u043A\u0442\u043E \u043F\u043E\u0434\u0430\u0440\u0438\u043B, \u0447\u0435\u043C \u0437\u0430\u043F\u043E\u043C\u043D\u0438\u043B\u0441\u044F\u2026",
+    style: {
+      ...serif,
+      width: "100%",
+      boxSizing: "border-box",
+      fontSize: 15.5,
+      lineHeight: 1.55,
+      color: C.ink,
+      background: C.paper,
+      border: "1px solid ".concat(C.line),
+      borderRadius: R.sm,
+      padding: 10,
+      resize: "vertical"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center",
+      marginTop: 8,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement(Btn, {
+    small: true,
+    tone: "moss",
+    onClick: () => {
+      const t = storyText.trim();
+      onEdit({
+        story: t || null
+      });
+      setStoryEdit(false);
+      showToast(t ? "История сохранена" : "История убрана");
+    }
+  }, "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C"), /*#__PURE__*/React.createElement(Btn, {
+    small: true,
+    tone: "ghost",
+    onClick: () => setStoryEdit(false)
+  }, "\u041E\u0442\u043C\u0435\u043D\u0430"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...sans,
+      fontSize: 12,
+      color: C.sageText
+    }
+  }, storyText.length, " \u0438\u0437 600")), /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...sans,
+      fontSize: 12.5,
+      color: C.sageText,
+      margin: "8px 0 0",
+      lineHeight: 1.5
+    }
+  }, "\u041F\u043E\u043F\u0430\u0434\u0451\u0442 \u0432 \u043E\u0442\u043A\u0440\u044B\u0442\u043A\u0443, \u0438 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A \u0431\u0443\u0434\u0435\u0442 \u0437\u043D\u0430\u0442\u044C \u044D\u0442\u043E, \u043A\u043E\u0433\u0434\u0430 \u0441\u043E\u0432\u0435\u0442\u0443\u0435\u0442.")) : plant.story ? /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...serif,
+      fontSize: 15.5,
+      lineHeight: 1.6,
+      color: C.ink,
+      margin: "8px 0 0",
+      whiteSpace: "pre-wrap"
+    }
+  }, plant.story) : /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...sans,
+      fontSize: 13.5,
+      color: C.sageText,
+      margin: "6px 0 0",
+      lineHeight: 1.5
+    }
+  }, "\u041F\u0430\u0440\u0430 \u0441\u0442\u0440\u043E\u043A \u043E \u0442\u043E\u043C, \u043E\u0442\u043A\u0443\u0434\u0430 \u043E\u043D \u0432\u0437\u044F\u043B\u0441\u044F. \u0414\u043D\u0435\u0432\u043D\u0438\u043A \u0432\u0435\u0434\u0451\u0442 \u0441\u0447\u0451\u0442 \u043F\u043E\u043B\u0438\u0432\u0430\u043C \u2014 \u0430 \u044D\u0442\u043E \u043E\u0441\u0442\u0430\u043D\u0435\u0442\u0441\u044F \u0437\u0434\u0435\u0441\u044C \u043A\u0430\u043A \u0435\u0441\u0442\u044C.")), !isArchived && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 6,
@@ -8475,16 +8607,16 @@ function CareEditor(_ref34) {
     onCancel = _ref34.onCancel;
   const base = plant.care || {};
   const cur = careOf(plant);
-  const _useState163 = useState(() => {
+  const _useState167 = useState(() => {
       const o = {};
       CARE_FIELDS.forEach(f => {
         o[f.k] = cur[f.k] == null ? "" : String(cur[f.k]);
       });
       return o;
     }),
-    _useState164 = _slicedToArray(_useState163, 2),
-    vals = _useState164[0],
-    setVals = _useState164[1];
+    _useState168 = _slicedToArray(_useState167, 2),
+    vals = _useState168[0],
+    setVals = _useState168[1];
   const user = plant.careUser || {};
   return /*#__PURE__*/React.createElement("div", {
     className: "reveal",
@@ -8572,26 +8704,26 @@ function RepotForm(_ref35) {
   let plant = _ref35.plant,
     onSave = _ref35.onSave,
     onCancel = _ref35.onCancel;
-  const _useState165 = useState(plant.potCm ? String(plant.potCm) : ""),
-    _useState166 = _slicedToArray(_useState165, 2),
-    potCm = _useState166[0],
-    setPotCm = _useState166[1];
-  const _useState167 = useState(plant.potMaterial || "plastic"),
-    _useState168 = _slicedToArray(_useState167, 2),
-    potMaterial = _useState168[0],
-    setPotMaterial = _useState168[1];
-  const _useState169 = useState(plant.drainage !== false),
+  const _useState169 = useState(plant.potCm ? String(plant.potCm) : ""),
     _useState170 = _slicedToArray(_useState169, 2),
-    drainage = _useState170[0],
-    setDrainage = _useState170[1];
-  const _useState171 = useState(plant.substrate || "universal"),
+    potCm = _useState170[0],
+    setPotCm = _useState170[1];
+  const _useState171 = useState(plant.potMaterial || "plastic"),
     _useState172 = _slicedToArray(_useState171, 2),
-    substrate = _useState172[0],
-    setSubstrate = _useState172[1];
-  const _useState173 = useState(new Date().toISOString().slice(0, 7)),
+    potMaterial = _useState172[0],
+    setPotMaterial = _useState172[1];
+  const _useState173 = useState(plant.drainage !== false),
     _useState174 = _slicedToArray(_useState173, 2),
-    when = _useState174[0],
-    setWhen = _useState174[1];
+    drainage = _useState174[0],
+    setDrainage = _useState174[1];
+  const _useState175 = useState(plant.substrate || "universal"),
+    _useState176 = _slicedToArray(_useState175, 2),
+    substrate = _useState176[0],
+    setSubstrate = _useState176[1];
+  const _useState177 = useState(new Date().toISOString().slice(0, 7)),
+    _useState178 = _slicedToArray(_useState177, 2),
+    when = _useState178[0],
+    setWhen = _useState178[1];
   const step = plant.care && plant.care.potStepCm || 2;
   return /*#__PURE__*/React.createElement("div", {
     className: "reveal",
@@ -8687,38 +8819,38 @@ function EditPlant(_ref36) {
     onSave = _ref36.onSave,
     onCancel = _ref36.onCancel,
     showToast = _ref36.showToast;
-  const _useState175 = useState(plant.name),
-    _useState176 = _slicedToArray(_useState175, 2),
-    eName = _useState176[0],
-    setEName = _useState176[1];
-  const _useState177 = useState(plant.nickname || ""),
-    _useState178 = _slicedToArray(_useState177, 2),
-    eNickname = _useState178[0],
-    setENickname = _useState178[1];
-  const _useState179 = useState(plant.ownedSince || ""),
+  const _useState179 = useState(plant.name),
     _useState180 = _slicedToArray(_useState179, 2),
-    eOwned = _useState180[0],
-    setEOwned = _useState180[1];
-  const _useState181 = useState(plant.origin || "bought"),
+    eName = _useState180[0],
+    setEName = _useState180[1];
+  const _useState181 = useState(plant.nickname || ""),
     _useState182 = _slicedToArray(_useState181, 2),
-    eOrigin = _useState182[0],
-    setEOrigin = _useState182[1];
-  const _useState183 = useState(plant.parentId || ""),
+    eNickname = _useState182[0],
+    setENickname = _useState182[1];
+  const _useState183 = useState(plant.ownedSince || ""),
     _useState184 = _slicedToArray(_useState183, 2),
-    eParentId = _useState184[0],
-    setEParentId = _useState184[1];
-  const _useState185 = useState(!!plant.lamp),
+    eOwned = _useState184[0],
+    setEOwned = _useState184[1];
+  const _useState185 = useState(plant.origin || "bought"),
     _useState186 = _slicedToArray(_useState185, 2),
-    eLamp = _useState186[0],
-    setELamp = _useState186[1];
-  const _useState187 = useState(null),
+    eOrigin = _useState186[0],
+    setEOrigin = _useState186[1];
+  const _useState187 = useState(plant.parentId || ""),
     _useState188 = _slicedToArray(_useState187, 2),
-    ePhoto = _useState188[0],
-    setEPhoto = _useState188[1];
-  const _useState189 = useState(""),
+    eParentId = _useState188[0],
+    setEParentId = _useState188[1];
+  const _useState189 = useState(!!plant.lamp),
     _useState190 = _slicedToArray(_useState189, 2),
-    pq = _useState190[0],
-    setPq = _useState190[1];
+    eLamp = _useState190[0],
+    setELamp = _useState190[1];
+  const _useState191 = useState(null),
+    _useState192 = _slicedToArray(_useState191, 2),
+    ePhoto = _useState192[0],
+    setEPhoto = _useState192[1];
+  const _useState193 = useState(""),
+    _useState194 = _slicedToArray(_useState193, 2),
+    pq = _useState194[0],
+    setPq = _useState194[1];
   const fileRef = useRef(null);
   const camRef = useRef(null);
   async function handlePhoto(f) {
@@ -8922,25 +9054,25 @@ function ChatView(_ref37) {
     profile = _ref37.profile,
     messages = _ref37.messages,
     onMessages = _ref37.onMessages;
-  const _useState191 = useState(""),
-    _useState192 = _slicedToArray(_useState191, 2),
-    input = _useState192[0],
-    setInput = _useState192[1];
-  const _useState193 = useState(false),
-    _useState194 = _slicedToArray(_useState193, 2),
-    busy = _useState194[0],
-    setBusy = _useState194[1];
-  const _useState195 = useState(null),
+  const _useState195 = useState(""),
     _useState196 = _slicedToArray(_useState195, 2),
-    pendingImage = _useState196[0],
-    setPendingImage = _useState196[1];
+    input = _useState196[0],
+    setInput = _useState196[1];
+  const _useState197 = useState(false),
+    _useState198 = _slicedToArray(_useState197, 2),
+    busy = _useState198[0],
+    setBusy = _useState198[1];
+  const _useState199 = useState(null),
+    _useState200 = _slicedToArray(_useState199, 2),
+    pendingImage = _useState200[0],
+    setPendingImage = _useState200[1];
   const fileRef = useRef(null);
   const camRef = useRef(null);
   const srcChoose = useRef(null);
-  const _useState197 = useState(false),
-    _useState198 = _slicedToArray(_useState197, 2),
-    srcOpen = _useState198[0],
-    setSrcOpen = _useState198[1];
+  const _useState201 = useState(false),
+    _useState202 = _slicedToArray(_useState201, 2),
+    srcOpen = _useState202[0],
+    setSrcOpen = _useState202[1];
   const bottomRef = useRef(null);
   useEffect(() => {
     if (bottomRef.current) bottomRef.current.scrollIntoView({
@@ -9205,14 +9337,14 @@ function WishlistView(_ref38) {
     onVerdict = _ref38.onVerdict,
     onPlant = _ref38.onPlant,
     showToast = _ref38.showToast;
-  const _useState199 = useState(""),
-    _useState200 = _slicedToArray(_useState199, 2),
-    name = _useState200[0],
-    setName = _useState200[1];
-  const _useState201 = useState(null),
-    _useState202 = _slicedToArray(_useState201, 2),
-    busyId = _useState202[0],
-    setBusyId = _useState202[1];
+  const _useState203 = useState(""),
+    _useState204 = _slicedToArray(_useState203, 2),
+    name = _useState204[0],
+    setName = _useState204[1];
+  const _useState205 = useState(null),
+    _useState206 = _slicedToArray(_useState205, 2),
+    busyId = _useState206[0],
+    setBusyId = _useState206[1];
   const fitColor = {
     good: C.sageText,
     maybe: C.sunText,
@@ -9388,10 +9520,10 @@ function SuppliesView(_ref39) {
     onRemoveInv = _ref39.onRemoveInv,
     onOpenPlant = _ref39.onOpenPlant,
     showToast = _ref39.showToast;
-  const _useState203 = useState("needs"),
-    _useState204 = _slicedToArray(_useState203, 2),
-    tab = _useState204[0],
-    setTab = _useState204[1];
+  const _useState207 = useState("needs"),
+    _useState208 = _slicedToArray(_useState207, 2),
+    tab = _useState208[0],
+    setTab = _useState208[1];
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 18,
@@ -9445,18 +9577,18 @@ function NeedsView(_ref40) {
     onRemove = _ref40.onRemove,
     onOpenPlant = _ref40.onOpenPlant,
     showToast = _ref40.showToast;
-  const _useState205 = useState(""),
-    _useState206 = _slicedToArray(_useState205, 2),
-    text = _useState206[0],
-    setText = _useState206[1];
-  const _useState207 = useState(false),
-    _useState208 = _slicedToArray(_useState207, 2),
-    aiBusy = _useState208[0],
-    setAiBusy = _useState208[1];
   const _useState209 = useState(""),
     _useState210 = _slicedToArray(_useState209, 2),
-    order = _useState210[0],
-    setOrder = _useState210[1];
+    text = _useState210[0],
+    setText = _useState210[1];
+  const _useState211 = useState(false),
+    _useState212 = _slicedToArray(_useState211, 2),
+    aiBusy = _useState212[0],
+    setAiBusy = _useState212[1];
+  const _useState213 = useState(""),
+    _useState214 = _slicedToArray(_useState213, 2),
+    order = _useState214[0],
+    setOrder = _useState214[1];
   const general = needs.filter(n => !n.plantId || !plants.find(p => p.id === n.plantId));
   const byPlant = plants.map(p => ({
     p,
@@ -9665,50 +9797,50 @@ function InventoryView(_ref43) {
     onOpenPlant = _ref43.onOpenPlant,
     onAddNeed = _ref43.onAddNeed,
     showToast = _ref43.showToast;
-  const _useState211 = useState(""),
-    _useState212 = _slicedToArray(_useState211, 2),
-    name = _useState212[0],
-    setName = _useState212[1];
-  const _useState213 = useState("feed"),
-    _useState214 = _slicedToArray(_useState213, 2),
-    cat = _useState214[0],
-    setCat = _useState214[1];
   const _useState215 = useState(""),
     _useState216 = _slicedToArray(_useState215, 2),
-    note = _useState216[0],
-    setNote = _useState216[1];
-  const _useState217 = useState(""),
+    name = _useState216[0],
+    setName = _useState216[1];
+  const _useState217 = useState("feed"),
     _useState218 = _slicedToArray(_useState217, 2),
-    uses = _useState218[0],
-    setUses = _useState218[1];
-  const _useState219 = useState(false),
+    cat = _useState218[0],
+    setCat = _useState218[1];
+  const _useState219 = useState(""),
     _useState220 = _slicedToArray(_useState219, 2),
-    adding = _useState220[0],
-    setAdding = _useState220[1];
-  const _useState221 = useState(null),
+    note = _useState220[0],
+    setNote = _useState220[1];
+  const _useState221 = useState(""),
     _useState222 = _slicedToArray(_useState221, 2),
-    busyId = _useState222[0],
-    setBusyId = _useState222[1];
-  const _useState223 = useState(null),
+    uses = _useState222[0],
+    setUses = _useState222[1];
+  const _useState223 = useState(false),
     _useState224 = _slicedToArray(_useState223, 2),
-    editId = _useState224[0],
-    setEditId = _useState224[1];
+    adding = _useState224[0],
+    setAdding = _useState224[1];
   const _useState225 = useState(null),
     _useState226 = _slicedToArray(_useState225, 2),
-    openId = _useState226[0],
-    setOpenId = _useState226[1];
-  const _useState227 = useState(""),
+    busyId = _useState226[0],
+    setBusyId = _useState226[1];
+  const _useState227 = useState(null),
     _useState228 = _slicedToArray(_useState227, 2),
-    eName = _useState228[0],
-    setEName = _useState228[1];
-  const _useState229 = useState(""),
+    editId = _useState228[0],
+    setEditId = _useState228[1];
+  const _useState229 = useState(null),
     _useState230 = _slicedToArray(_useState229, 2),
-    eNote = _useState230[0],
-    setENote = _useState230[1];
-  const _useState231 = useState("other"),
+    openId = _useState230[0],
+    setOpenId = _useState230[1];
+  const _useState231 = useState(""),
     _useState232 = _slicedToArray(_useState231, 2),
-    eCat = _useState232[0],
-    setECat = _useState232[1];
+    eName = _useState232[0],
+    setEName = _useState232[1];
+  const _useState233 = useState(""),
+    _useState234 = _slicedToArray(_useState233, 2),
+    eNote = _useState234[0],
+    setENote = _useState234[1];
+  const _useState235 = useState("other"),
+    _useState236 = _slicedToArray(_useState235, 2),
+    eCat = _useState236[0],
+    setECat = _useState236[1];
   function add() {
     if (!name.trim()) return;
     onAdd(name, cat, note, uses);
@@ -10358,10 +10490,39 @@ async function makeGardenPostcard(plants) {
 }
 
 /* Портрет одного жителя — вертикальный формат, который отправляют подруге */
+/* Перенос по словам для canvas: у него нет ни строк, ни многоточия. */
+function wrapText(ctx, text, maxWidth, maxLines) {
+  const words = String(text || "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  const lines = [];
+  let line = "";
+  let cut = false;
+  for (let i = 0; i < words.length; i++) {
+    const t = line ? line + " " + words[i] : words[i];
+    if (ctx.measureText(t).width <= maxWidth) {
+      line = t;
+      continue;
+    }
+    if (line) lines.push(line);
+    line = words[i];
+    if (lines.length >= maxLines) {
+      cut = true;
+      break;
+    }
+  }
+  if (!cut && line && lines.length < maxLines) lines.push(line);
+  if ((cut || line) && lines.length >= maxLines) {
+    lines[maxLines - 1] = lines[maxLines - 1].replace(/[,.;:\s]+$/, "") + "…";
+  }
+  return lines.slice(0, maxLines);
+}
 async function makePlantPostcard(p) {
   const W = 540,
-    H = 675,
     S = 2;
+  /* Историю меряем заранее: от числа строк зависит высота открытки. */
+  const measure = document.createElement("canvas").getContext("2d");
+  measure.font = "italic 16px Georgia, serif";
+  const storyLines = wrapText(measure, p.story || "", W - 120, 6);
+  const H = 675 + (storyLines.length ? 30 + storyLines.length * 24 : 0);
   const cv = document.createElement("canvas");
   cv.width = W * S;
   cv.height = H * S;
@@ -10406,6 +10567,18 @@ async function makePlantPostcard(p) {
   ctx.font = "15px -apple-system, Segoe UI, sans-serif";
   const facts = [p.ownedSince ? "у нас с " + fmtMonth(p.ownedSince) : null, care.difficulty ? "характер: " + care.difficulty : null, p.spot ? shortSpot(p.spot) : null].filter(Boolean).join("  ·  ");
   ctx.fillText(facts, W / 2, top + box + 112);
+  if (storyLines.length) {
+    const y = top + box + 112 + 42;
+    ctx.strokeStyle = "rgba(46,68,51,.18)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(W / 2 - 46, y - 22);
+    ctx.lineTo(W / 2 + 46, y - 22);
+    ctx.stroke();
+    ctx.fillStyle = "#4a6b4f";
+    ctx.font = "italic 16px Georgia, serif";
+    storyLines.forEach((ln, i) => ctx.fillText(ln, W / 2, y + i * 24));
+  }
   drawLeafGlyph(ctx, W / 2, H - 54, 24, "#7d9b76");
   ctx.fillStyle = "#7d9b76";
   ctx.font = "italic 14px Georgia, serif";
@@ -10818,11 +10991,11 @@ function ProfileSetup(props) {
     storageStats = props.storageStats,
     onOpenPlant = props.onOpenPlant,
     showToast = props.showToast;
-  const _useState233 = useState("flat"),
-    _useState234 = _slicedToArray(_useState233, 2),
-    tab = _useState234[0],
-    setTab = _useState234[1];
-  const _useState235 = useState(profile && profile.spots && profile.spots.length > 0 ? profile.spots.map(s => ({
+  const _useState237 = useState("flat"),
+    _useState238 = _slicedToArray(_useState237, 2),
+    tab = _useState238[0],
+    setTab = _useState238[1];
+  const _useState239 = useState(profile && profile.spots && profile.spots.length > 0 ? profile.spots.map(s => ({
       id: s.id || uid(),
       label: s.label || "",
       orientation: s.orientation || "south",
@@ -10837,77 +11010,77 @@ function ProfileSetup(props) {
       isBalcony: false,
       glazed: null
     }]),
-    _useState236 = _slicedToArray(_useState235, 2),
-    spots = _useState236[0],
-    setSpots = _useState236[1];
-  const _useState237 = useState(profile && profile.notes || ""),
-    _useState238 = _slicedToArray(_useState237, 2),
-    notes = _useState238[0],
-    setNotes = _useState238[1];
-  const _useState239 = useState(profile && profile.city || ""),
     _useState240 = _slicedToArray(_useState239, 2),
-    city = _useState240[0],
-    setCity = _useState240[1];
-  const _useState241 = useState(profile && profile.person || ""),
+    spots = _useState240[0],
+    setSpots = _useState240[1];
+  const _useState241 = useState(profile && profile.notes || ""),
     _useState242 = _slicedToArray(_useState241, 2),
-    person = _useState242[0],
-    setPerson = _useState242[1];
-  const _useState243 = useState(profile && profile.water || ""),
+    notes = _useState242[0],
+    setNotes = _useState242[1];
+  const _useState243 = useState(profile && profile.city || ""),
     _useState244 = _slicedToArray(_useState243, 2),
-    waterKind = _useState244[0],
-    setWaterKind = _useState244[1];
-  const _useState245 = useState(!!(profile && profile.heatingOn)),
+    city = _useState244[0],
+    setCity = _useState244[1];
+  const _useState245 = useState(profile && profile.person || ""),
     _useState246 = _slicedToArray(_useState245, 2),
-    heatingOn = _useState246[0],
-    setHeatingOn = _useState246[1];
-  const _useState247 = useState(profile && profile.careDays || []),
+    person = _useState246[0],
+    setPerson = _useState246[1];
+  const _useState247 = useState(profile && profile.water || ""),
     _useState248 = _slicedToArray(_useState247, 2),
-    careDays = _useState248[0],
-    setCareDays = _useState248[1];
-  const _useState249 = useState(profile && profile.notifyHour != null ? profile.notifyHour : 9),
+    waterKind = _useState248[0],
+    setWaterKind = _useState248[1];
+  const _useState249 = useState(!!(profile && profile.heatingOn)),
     _useState250 = _slicedToArray(_useState249, 2),
-    notifyHour = _useState250[0],
-    setNotifyHour = _useState250[1];
-  const _useState251 = useState(profile && profile.theme || "auto"),
+    heatingOn = _useState250[0],
+    setHeatingOn = _useState250[1];
+  const _useState251 = useState(profile && profile.careDays || []),
     _useState252 = _slicedToArray(_useState251, 2),
-    theme = _useState252[0],
-    setTheme = _useState252[1];
-  const _useState253 = useState(false),
+    careDays = _useState252[0],
+    setCareDays = _useState252[1];
+  const _useState253 = useState(profile && profile.notifyHour != null ? profile.notifyHour : 9),
     _useState254 = _slicedToArray(_useState253, 2),
-    cityBusy = _useState254[0],
-    setCityBusy = _useState254[1];
-  const _useState255 = useState(null),
+    notifyHour = _useState254[0],
+    setNotifyHour = _useState254[1];
+  const _useState255 = useState(profile && profile.theme || "auto"),
     _useState256 = _slicedToArray(_useState255, 2),
-    cityCheck = _useState256[0],
-    setCityCheck = _useState256[1];
+    theme = _useState256[0],
+    setTheme = _useState256[1];
   const _useState257 = useState(false),
     _useState258 = _slicedToArray(_useState257, 2),
-    auditBusy = _useState258[0],
-    setAuditBusy = _useState258[1];
+    cityBusy = _useState258[0],
+    setCityBusy = _useState258[1];
   const _useState259 = useState(null),
     _useState260 = _slicedToArray(_useState259, 2),
-    audit = _useState260[0],
-    setAudit = _useState260[1];
-  const _useState261 = useState({}),
+    cityCheck = _useState260[0],
+    setCityCheck = _useState260[1];
+  const _useState261 = useState(false),
     _useState262 = _slicedToArray(_useState261, 2),
-    moved = _useState262[0],
-    setMoved = _useState262[1];
-  const _useState263 = useState(""),
+    auditBusy = _useState262[0],
+    setAuditBusy = _useState262[1];
+  const _useState263 = useState(null),
     _useState264 = _slicedToArray(_useState263, 2),
-    connCode = _useState264[0],
-    setConnCode = _useState264[1];
-  const _useState265 = useState(false),
+    audit = _useState264[0],
+    setAudit = _useState264[1];
+  const _useState265 = useState({}),
     _useState266 = _slicedToArray(_useState265, 2),
-    copied = _useState266[0],
-    setCopied = _useState266[1];
-  const _useState267 = useState(false),
+    moved = _useState266[0],
+    setMoved = _useState266[1];
+  const _useState267 = useState(""),
     _useState268 = _slicedToArray(_useState267, 2),
-    showStorage = _useState268[0],
-    setShowStorage = _useState268[1];
-  const _useState269 = useState(null),
+    connCode = _useState268[0],
+    setConnCode = _useState268[1];
+  const _useState269 = useState(false),
     _useState270 = _slicedToArray(_useState269, 2),
-    askLocal = _useState270[0],
-    setAskLocal = _useState270[1];
+    copied = _useState270[0],
+    setCopied = _useState270[1];
+  const _useState271 = useState(false),
+    _useState272 = _slicedToArray(_useState271, 2),
+    showStorage = _useState272[0],
+    setShowStorage = _useState272[1];
+  const _useState273 = useState(null),
+    _useState274 = _slicedToArray(_useState273, 2),
+    askLocal = _useState274[0],
+    setAskLocal = _useState274[1];
   const wpRef = useRef(null);
   async function checkCity() {
     const c = city.trim();
@@ -10986,7 +11159,14 @@ function ProfileSetup(props) {
       } : {})
     });
   }
-  const kb = n => n > 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + " МБ" : Math.round(n / 1024) + " КБ";
+
+  /* На вход приходит длина строки в символах; в памяти браузера символ весит
+     два байта, поэтому переводим — иначе цифра занижена вдвое. */
+  const kb = chars => {
+    const n = storeBytes(chars);
+    return n > 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + " МБ" : Math.round(n / 1024) + " КБ";
+  };
+  const storeShare = Math.min(100, Math.round(storageStats.total / STORE_LIMIT_CHARS * 100));
   return /*#__PURE__*/React.createElement("div", {
     style: {
       maxWidth: 620
@@ -11532,7 +11712,32 @@ function ProfileSetup(props) {
       margin: "0 0 8px",
       lineHeight: 1.55
     }
-  }, "\u0421\u0430\u0434 \u0437\u0430\u043D\u0438\u043C\u0430\u0435\u0442 ", kb(storageStats.total), " \u0438\u0437 \u043F\u0440\u0438\u043C\u0435\u0440\u043D\u043E 5 \u041C\u0411, \u043A\u043E\u0442\u043E\u0440\u044B\u0435 \u0434\u0430\u0451\u0442 \u0431\u0440\u0430\u0443\u0437\u0435\u0440. \u041F\u043E\u0447\u0442\u0438 \u0432\u0441\u0451 \u044D\u0442\u043E \u2014 \u0444\u043E\u0442\u043E\u0433\u0440\u0430\u0444\u0438\u0438."), /*#__PURE__*/React.createElement(Link, {
+  }, "\u0421\u0430\u0434 \u0437\u0430\u043D\u0438\u043C\u0430\u0435\u0442 ", kb(storageStats.total), " \u2014 \u044D\u0442\u043E ", storeShare < 1 ? "меньше 1%" : storeShare + "%", " \u0442\u043E\u0433\u043E, \u0447\u0442\u043E \u0431\u0440\u0430\u0443\u0437\u0435\u0440 \u043E\u0442\u0432\u043E\u0434\u0438\u0442 \u043E\u0434\u043D\u043E\u043C\u0443 \u0441\u0430\u0439\u0442\u0443. \u041F\u043E\u0447\u0442\u0438 \u0432\u0441\u0451 \u043C\u0435\u0441\u0442\u043E \u0437\u0430\u043D\u0438\u043C\u0430\u044E\u0442 \u0444\u043E\u0442\u043E\u0433\u0440\u0430\u0444\u0438\u0438."), /*#__PURE__*/React.createElement("div", {
+    role: "img",
+    "aria-label": "\u0417\u0430\u043D\u044F\u0442\u043E ".concat(storeShare < 1 ? "меньше одного процента" : storeShare + " процентов", " \u043F\u0430\u043C\u044F\u0442\u0438"),
+    style: {
+      height: 8,
+      borderRadius: 999,
+      background: C.paperDeep,
+      overflow: "hidden",
+      margin: "0 0 10px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: Math.max(storeShare, storageStats.total ? 2 : 0) + "%",
+      height: "100%",
+      borderRadius: 999,
+      background: storeShare >= 80 ? C.blossomText : storeShare >= 60 ? C.sunText : C.sage
+    }
+  })), storeShare >= 80 && /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...sans,
+      fontSize: 13,
+      color: C.blossomText,
+      margin: "0 0 8px",
+      lineHeight: 1.55
+    }
+  }, "\u041C\u0435\u0441\u0442\u043E \u043F\u043E\u0447\u0442\u0438 \u043A\u043E\u043D\u0447\u0438\u043B\u043E\u0441\u044C. \u041E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u0441\u043F\u0438\u0441\u043E\u043A \u043D\u0438\u0436\u0435 \u0438 \u0443\u0434\u0430\u043B\u0438\u0442\u0435 \u043B\u0438\u0448\u043D\u0438\u0435 \u043A\u0430\u0434\u0440\u044B \u0443 \u0441\u0430\u043C\u044B\u0445 \xAB\u0442\u044F\u0436\u0451\u043B\u044B\u0445\xBB \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0439 \u2014 \u043E\u0434\u043D\u043E\u0433\u043E \u0445\u043E\u0440\u043E\u0448\u0435\u0433\u043E \u043F\u043E\u0440\u0442\u0440\u0435\u0442\u0430 \u043D\u0430 \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0435 \u043E\u0431\u044B\u0447\u043D\u043E \u0434\u043E\u0441\u0442\u0430\u0442\u043E\u0447\u043D\u043E."), /*#__PURE__*/React.createElement(Link, {
     onClick: () => setShowStorage(!showStorage)
   }, showStorage ? "свернуть" : "кто сколько занимает"), showStorage && /*#__PURE__*/React.createElement("div", {
     className: "reveal",
@@ -11747,26 +11952,26 @@ function VacationView(_ref51) {
     weather = _ref51.weather,
     onBack = _ref51.onBack,
     showToast = _ref51.showToast;
-  const _useState271 = useState(null),
-    _useState272 = _slicedToArray(_useState271, 2),
-    prep = _useState272[0],
-    setPrep = _useState272[1];
-  const _useState273 = useState(false),
-    _useState274 = _slicedToArray(_useState273, 2),
-    prepBusy = _useState274[0],
-    setPrepBusy = _useState274[1];
-  const _useState275 = useState(false),
+  const _useState275 = useState(null),
     _useState276 = _slicedToArray(_useState275, 2),
-    showCal = _useState276[0],
-    setShowCal = _useState276[1];
-  const _useState277 = useState(today()),
+    prep = _useState276[0],
+    setPrep = _useState276[1];
+  const _useState277 = useState(false),
     _useState278 = _slicedToArray(_useState277, 2),
-    from = _useState278[0],
-    setFrom = _useState278[1];
-  const _useState279 = useState(isoDate(new Date(Date.now() + 13 * 86400000))),
+    prepBusy = _useState278[0],
+    setPrepBusy = _useState278[1];
+  const _useState279 = useState(false),
     _useState280 = _slicedToArray(_useState279, 2),
-    to = _useState280[0],
-    setTo = _useState280[1];
+    showCal = _useState280[0],
+    setShowCal = _useState280[1];
+  const _useState281 = useState(today()),
+    _useState282 = _slicedToArray(_useState281, 2),
+    from = _useState282[0],
+    setFrom = _useState282[1];
+  const _useState283 = useState(isoDate(new Date(Date.now() + 13 * 86400000))),
+    _useState284 = _slicedToArray(_useState283, 2),
+    to = _useState284[0],
+    setTo = _useState284[1];
   useEffect(() => {
     (async () => {
       try {
