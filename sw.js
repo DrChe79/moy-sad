@@ -1,7 +1,7 @@
 /* «Мой сад» — service worker. Собран автоматически, руками не править.
    Стратегия: сначала сеть (свежая версия важнее скорости), кэш — запасной аэродром.
    Так обновления прилетают сразу, а без интернета приложение всё равно открывается. */
-const CACHE = "moy-sad-24.08-10:16";
+const CACHE = "moy-sad-24.08-10:30";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-180.png"];
 
 self.addEventListener("install", function (e) {
