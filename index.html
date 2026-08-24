@@ -429,7 +429,7 @@ function applyTheme(mode) {
   } catch (e) {/* до монтирования — не страшно */}
   return dark;
 }
-const APP_VERSION = "24.08-10:16";
+const APP_VERSION = "24.08-10:30";
 
 /* localStorage хранит строки в UTF-16 — два байта на символ. Браузерные «5 МБ»
    это примерно 2,6 млн символов, а не 5 млн, как считала прежняя версия: порог
@@ -1262,16 +1262,32 @@ function weatherHints(w, balconyPlants, profile) {
     });
     const coldTomorrow = balconyPlants.filter(p => at(p).tminNext <= chillPoint(p));
     const unknownKind = balconyPlants.some(p => plantBalconyKind(p, profile) === null);
+    /* Сообщение называет и уличную цифру, и ту, с которой сравнивали:
+       иначе «на улице 12° — это уже холодно» не сходится с порогом 18°,
+       и заодно видно, каким приложение считает балкон. */
+    const whereT = p => {
+      const k = plantBalconyKind(p, profile);
+      const t = spotTemp(w, k);
+      if (k === "glazedWarm") return "\u043D\u0430 \u0442\u0451\u043F\u043B\u043E\u043C \u0431\u0430\u043B\u043A\u043E\u043D\u0435 \u043E\u043A\u043E\u043B\u043E +".concat(Math.round(t.tmin), "\xB0");
+      if (k === "glazedCold") return "\u043D\u0430 \u0437\u0430\u0441\u0442\u0435\u043A\u043B\u0451\u043D\u043D\u043E\u043C \u0431\u0430\u043B\u043A\u043E\u043D\u0435 \u043E\u043A\u043E\u043B\u043E +".concat(Math.round(t.tmin), "\xB0");
+      return null;
+    };
     if (coldTonight.length) {
+      const where = whereT(coldTonight[0]);
+      const names = coldTonight.map(p => p.nickname || p.name).join(", ");
+      const bounds = coldTonight.map(p => chillPoint(p));
+      const lowest = Math.min.apply(null, bounds);
+      const highest = Math.max.apply(null, bounds);
       hints.push({
         icon: "thermo",
         tone: "warn",
-        text: "\u041D\u043E\u0447\u044C\u044E \u043D\u0430 \u0443\u043B\u0438\u0446\u0435 ".concat(Math.round(w.tmin), "\xB0 \u2014 \u044D\u0442\u043E \u0443\u0436\u0435 \u0445\u043E\u043B\u043E\u0434\u043D\u043E \u0434\u043B\u044F: ").concat(coldTonight.map(p => p.nickname || p.name).join(", "), ". \u0417\u0430\u043D\u0435\u0441\u0438\u0442\u0435.") + (unknownKind ? " Если балкон застеклён, у вас теплее — уточните в настройках." : "")
+        text: "\u041D\u043E\u0447\u044C\u044E \u043D\u0430 \u0443\u043B\u0438\u0446\u0435 ".concat(Math.round(w.tmin), "\xB0").concat(where ? ", " + where : "", " \u2014 \u043F\u0440\u043E\u0445\u043B\u0430\u0434\u043D\u043E \u0434\u043B\u044F: ").concat(names, ".") + " \u041F\u043E\u0440\u043E\u0433 ".concat(highest === lowest ? "+" + Math.round(lowest) + "°" : "+" + Math.round(lowest) + "…+" + Math.round(highest) + "°", ". \u0417\u0430\u043D\u0435\u0441\u0438\u0442\u0435.") + (unknownKind ? " Если балкон застеклён, у вас теплее — уточните в настройках." : "")
       });
     } else if (coldTomorrow.length) {
+      const where = whereT(coldTomorrow[0]);
       hints.push({
         icon: "thermo",
-        text: "\u0417\u0430\u0432\u0442\u0440\u0430 \u043D\u043E\u0447\u044C\u044E ".concat(Math.round(w.tminNext), "\xB0 \u2014 \u043F\u0440\u0438\u0433\u043E\u0442\u043E\u0432\u044C\u0442\u0435\u0441\u044C \u0437\u0430\u043D\u0435\u0441\u0442\u0438: ").concat(coldTomorrow.map(p => p.nickname || p.name).join(", "), ".")
+        text: "\u0417\u0430\u0432\u0442\u0440\u0430 \u043D\u043E\u0447\u044C\u044E \u043D\u0430 \u0443\u043B\u0438\u0446\u0435 ".concat(Math.round(w.tminNext), "\xB0").concat(where ? ", " + where : "", " \u2014 \u043F\u0440\u0438\u0433\u043E\u0442\u043E\u0432\u044C\u0442\u0435\u0441\u044C \u0437\u0430\u043D\u0435\u0441\u0442\u0438: ").concat(coldTomorrow.map(p => p.nickname || p.name).join(", "), ".")
       });
     }
     const hotGlazed = balconyPlants.filter(p => {
