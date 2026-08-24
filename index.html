@@ -429,7 +429,7 @@ function applyTheme(mode) {
   } catch (e) {/* до монтирования — не страшно */}
   return dark;
 }
-const APP_VERSION = "24.08-10:30";
+const APP_VERSION = "24.08-10:39";
 
 /* localStorage хранит строки в UTF-16 — два байта на символ. Браузерные «5 МБ»
    это примерно 2,6 млн символов, а не 5 млн, как считала прежняя версия: порог
@@ -1209,7 +1209,13 @@ async function fetchWeather(lat, lon) {
 function chillPoint(p) {
   const care = careOf(p);
   if (typeof care.chillDamageTempC === "number") return care.chillDamageTempC;
-  if (typeof care.minTempC === "number") return care.minTempC + 5;
+  /* Когда порог не указан, считаем от переносимого минимума. Запас был пять
+     градусов — и давал ровные +20 у всех тропических лиственных, у которых
+     в паспорте стоит минимум +15. Это перестраховка: фикус сыплет лист
+     примерно от +15, при +18 ему нормально. По примерам в комментарии выше
+     запас составляет два градуса, а не пять.
+     Потолок +16: выше звать заносить бессмысленно — дома примерно столько же. */
+  if (typeof care.minTempC === "number") return Math.min(care.minTempC + 2, 16);
   return 5;
 }
 
