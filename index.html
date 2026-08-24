@@ -429,7 +429,7 @@ function applyTheme(mode) {
   } catch (e) {/* до монтирования — не страшно */}
   return dark;
 }
-const APP_VERSION = "24.08-10:05";
+const APP_VERSION = "24.08-10:16";
 
 /* localStorage хранит строки в UTF-16 — два байта на символ. Браузерные «5 МБ»
    это примерно 2,6 млн символов, а не 5 млн, как считала прежняя версия: порог
@@ -1022,11 +1022,17 @@ const balconyKindLong = v => (BALCONY_KINDS.find(b => b.v === v) || {}).long || 
 
 /* Старое поле glazed переводим консервативно: «застеклён» — это холодный балкон.
    Приписать отопление, которого нет, опаснее, чем недобрать тепла. */
-function balconyKindOf(spot) {
+function balconyKindOf(spot, profile) {
   if (!spot || !spot.isBalcony) return null;
   if (spot.balconyKind) return spot.balconyKind;
   if (spot.glazed === true) return "glazedCold";
   if (spot.glazed === false) return "open";
+  /* Совсем старые сады держали признак один на всю квартиру. Экран настроек
+     его читал, а расчёт температуры — нет: чип подсвечен, а подсказка всё
+     равно просила «уточните в настройках». */
+  const legacy = profile && profile.balconyGlazed;
+  if (legacy === true) return "glazedCold";
+  if (legacy === false) return "open";
   return null; /* не указано — считаем как открытый, но говорим об этом */
 }
 
@@ -1069,7 +1075,7 @@ function apartmentText(profile) {
     return "Описание квартиры не заполнено — давай общие рекомендации и при необходимости уточняй про свет.";
   }
   const places = profile.spots.map(s => {
-    const bk = balconyKindOf(s);
+    const bk = balconyKindOf(s, profile);
     const glaze = bk ? ", " + balconyKindLong(bk) : "";
     return "".concat(s.label).concat(s.isBalcony ? " (балкон)" : "", " \u2014 ").concat(s.orientation === "inside" ? "не у окна" : "окна на " + orientationT(s.orientation)).concat(s.light ? ", освещённость: " + lightPlain(s.light) : "").concat(glaze);
   }).join("; ");
@@ -1086,7 +1092,7 @@ function spotsFromProfile(profile) {
     return {
       label: s.label,
       isBalcony: !!s.isBalcony,
-      balconyKind: balconyKindOf(s),
+      balconyKind: balconyKindOf(s, profile),
       spot: s.light ? "".concat(base, " (").concat(lightPlain(s.light), ")") : base,
       location: s.isBalcony ? "balcony" : "home"
     };
@@ -1213,9 +1219,16 @@ function plantBalconyKind(p, profile) {
   if (!p || p.location !== "balcony") return null;
   const balconies = (profile && profile.spots || []).filter(s => s.isBalcony);
   if (balconies.length === 0) return null;
-  const label = (p.spot || "").trim();
-  const hit = balconies.find(s => label && label.indexOf((s.label || "").trim()) === 0);
-  return balconyKindOf(hit || (balconies.length === 1 ? balconies[0] : null));
+  const norm = x => (x || "").toLowerCase().replace(/[«»"']/g, "").trim();
+  const label = norm(p.spot);
+  let hit = label && balconies.find(s => norm(s.label) && label.indexOf(norm(s.label)) === 0);
+  if (!hit && label) hit = balconies.find(s => norm(s.label) && label.indexOf(norm(s.label)) >= 0);
+  if (hit) return balconyKindOf(hit, profile);
+  /* Место не сопоставилось — название могли переименовать. Если все балконы
+     квартиры одного вида, ответ всё равно однозначен. */
+  const kinds = balconies.map(s => balconyKindOf(s, profile));
+  const uniq = kinds.filter((k, i) => k && kinds.indexOf(k) === i);
+  return uniq.length === 1 ? uniq[0] : null;
 }
 
 /* Из прогноза — тёплые подсказки для «Сегодня» плюс поимённый список тех, кому холодно */
@@ -11239,7 +11252,7 @@ function ProfileSetup(props) {
       light: s.light || "",
       isBalcony: !!s.isBalcony,
       glazed: s.glazed !== undefined ? s.glazed : s.isBalcony ? profile.balconyGlazed == null ? null : profile.balconyGlazed : null,
-      balconyKind: balconyKindOf(s)
+      balconyKind: balconyKindOf(s, profile)
     })) : [{
       id: uid(),
       label: "",
