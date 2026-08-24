@@ -429,7 +429,7 @@ function applyTheme(mode) {
   } catch (e) {/* до монтирования — не страшно */}
   return dark;
 }
-const APP_VERSION = "24.08-18:14";
+const APP_VERSION = "24.08-18:24";
 
 /* localStorage хранит строки в UTF-16 — два байта на символ. Браузерные «5 МБ»
    это примерно 2,6 млн символов, а не 5 млн, как считала прежняя версия: порог
@@ -703,6 +703,7 @@ function noteAiError(e) {
   try {
     LAST_AI_ERROR = {
       at: Date.now(),
+      seconds: e && e.seconds ? e.seconds : null,
       name: e && e.name || "Error",
       message: String(e && e.message || e).slice(0, 200),
       status: e && e.status || null,
@@ -1478,6 +1479,7 @@ async function askClaude(messages, maxTokens) {
     messages
   });
   let response;
+  const startedAt = Date.now();
   try {
     response = await fetch(PROXY_URL, {
       method: "POST",
@@ -1496,6 +1498,7 @@ async function askClaude(messages, maxTokens) {
     const err = new Error(String(e && e.message || e).slice(0, 160));
     err.name = e && e.name || "NetworkError";
     err.bytes = payload.length;
+    err.seconds = Math.round((Date.now() - startedAt) / 100) / 10;
     noteAiError(err);
     throw err;
   }
@@ -11861,74 +11864,82 @@ function ProfileSetup(props) {
     _useState260 = _slicedToArray(_useState259, 2),
     pingBusy = _useState260[0],
     setPingBusy = _useState260[1];
-  const _useState261 = useState(profile && profile.notes || ""),
+  const _useState261 = useState(null),
     _useState262 = _slicedToArray(_useState261, 2),
-    notes = _useState262[0],
-    setNotes = _useState262[1];
-  const _useState263 = useState(profile && profile.city || ""),
+    askRes = _useState262[0],
+    setAskRes = _useState262[1];
+  const _useState263 = useState(false),
     _useState264 = _slicedToArray(_useState263, 2),
-    city = _useState264[0],
-    setCity = _useState264[1];
-  const _useState265 = useState(profile && profile.person || ""),
+    askBusy = _useState264[0],
+    setAskBusy = _useState264[1];
+  const _useState265 = useState(profile && profile.notes || ""),
     _useState266 = _slicedToArray(_useState265, 2),
-    person = _useState266[0],
-    setPerson = _useState266[1];
-  const _useState267 = useState(profile && profile.water || ""),
+    notes = _useState266[0],
+    setNotes = _useState266[1];
+  const _useState267 = useState(profile && profile.city || ""),
     _useState268 = _slicedToArray(_useState267, 2),
-    waterKind = _useState268[0],
-    setWaterKind = _useState268[1];
-  const _useState269 = useState(!!(profile && profile.heatingOn)),
+    city = _useState268[0],
+    setCity = _useState268[1];
+  const _useState269 = useState(profile && profile.person || ""),
     _useState270 = _slicedToArray(_useState269, 2),
-    heatingOn = _useState270[0],
-    setHeatingOn = _useState270[1];
-  const _useState271 = useState(profile && profile.careDays || []),
+    person = _useState270[0],
+    setPerson = _useState270[1];
+  const _useState271 = useState(profile && profile.water || ""),
     _useState272 = _slicedToArray(_useState271, 2),
-    careDays = _useState272[0],
-    setCareDays = _useState272[1];
-  const _useState273 = useState(profile && profile.notifyHour != null ? profile.notifyHour : 9),
+    waterKind = _useState272[0],
+    setWaterKind = _useState272[1];
+  const _useState273 = useState(!!(profile && profile.heatingOn)),
     _useState274 = _slicedToArray(_useState273, 2),
-    notifyHour = _useState274[0],
-    setNotifyHour = _useState274[1];
-  const _useState275 = useState(profile && profile.theme || "auto"),
+    heatingOn = _useState274[0],
+    setHeatingOn = _useState274[1];
+  const _useState275 = useState(profile && profile.careDays || []),
     _useState276 = _slicedToArray(_useState275, 2),
-    theme = _useState276[0],
-    setTheme = _useState276[1];
-  const _useState277 = useState(false),
+    careDays = _useState276[0],
+    setCareDays = _useState276[1];
+  const _useState277 = useState(profile && profile.notifyHour != null ? profile.notifyHour : 9),
     _useState278 = _slicedToArray(_useState277, 2),
-    cityBusy = _useState278[0],
-    setCityBusy = _useState278[1];
-  const _useState279 = useState(null),
+    notifyHour = _useState278[0],
+    setNotifyHour = _useState278[1];
+  const _useState279 = useState(profile && profile.theme || "auto"),
     _useState280 = _slicedToArray(_useState279, 2),
-    cityCheck = _useState280[0],
-    setCityCheck = _useState280[1];
+    theme = _useState280[0],
+    setTheme = _useState280[1];
   const _useState281 = useState(false),
     _useState282 = _slicedToArray(_useState281, 2),
-    auditBusy = _useState282[0],
-    setAuditBusy = _useState282[1];
+    cityBusy = _useState282[0],
+    setCityBusy = _useState282[1];
   const _useState283 = useState(null),
     _useState284 = _slicedToArray(_useState283, 2),
-    audit = _useState284[0],
-    setAudit = _useState284[1];
-  const _useState285 = useState({}),
+    cityCheck = _useState284[0],
+    setCityCheck = _useState284[1];
+  const _useState285 = useState(false),
     _useState286 = _slicedToArray(_useState285, 2),
-    moved = _useState286[0],
-    setMoved = _useState286[1];
-  const _useState287 = useState(""),
+    auditBusy = _useState286[0],
+    setAuditBusy = _useState286[1];
+  const _useState287 = useState(null),
     _useState288 = _slicedToArray(_useState287, 2),
-    connCode = _useState288[0],
-    setConnCode = _useState288[1];
-  const _useState289 = useState(false),
+    audit = _useState288[0],
+    setAudit = _useState288[1];
+  const _useState289 = useState({}),
     _useState290 = _slicedToArray(_useState289, 2),
-    copied = _useState290[0],
-    setCopied = _useState290[1];
-  const _useState291 = useState(false),
+    moved = _useState290[0],
+    setMoved = _useState290[1];
+  const _useState291 = useState(""),
     _useState292 = _slicedToArray(_useState291, 2),
-    showStorage = _useState292[0],
-    setShowStorage = _useState292[1];
-  const _useState293 = useState(null),
+    connCode = _useState292[0],
+    setConnCode = _useState292[1];
+  const _useState293 = useState(false),
     _useState294 = _slicedToArray(_useState293, 2),
-    askLocal = _useState294[0],
-    setAskLocal = _useState294[1];
+    copied = _useState294[0],
+    setCopied = _useState294[1];
+  const _useState295 = useState(false),
+    _useState296 = _slicedToArray(_useState295, 2),
+    showStorage = _useState296[0],
+    setShowStorage = _useState296[1];
+  const _useState297 = useState(null),
+    _useState298 = _slicedToArray(_useState297, 2),
+    askLocal = _useState298[0],
+    setAskLocal = _useState298[1];
   const wpRef = useRef(null);
   async function checkCity() {
     const c = city.trim();
@@ -12736,7 +12747,59 @@ function ProfileSetup(props) {
       color: ping.ok ? C.moss : C.blossomText,
       lineHeight: 1.5
     }
-  }, ping.ok ? "\u041E\u0442\u0432\u0435\u0447\u0430\u0435\u0442".concat(ping.data && ping.data.model ? " \xB7 \u043C\u043E\u0434\u0435\u043B\u044C ".concat(ping.data.model) : "") + (ping.data && ping.data.ai === false ? " · но ключ ИИ не задан" : "") + (ping.data && ping.data.sync === false ? " · хранилище не подключено" : "") + (ping.data && ping.data.kv && ping.data.kv !== "ok" && ping.data.kv !== "off" ? " · хранилище отказывает: " + ping.data.kv : "") + (ping.probe ? ping.probe.status === 400 ? " · путь к ИИ открыт" : ping.probe.status === 403 ? " · но общий секрет не совпадает с APP_SECRET в воркере" : ping.probe.status === 429 ? " · но суточная квота исчерпана" : ping.probe.status ? " \xB7 \u043F\u0443\u0442\u044C \u043A \u0418\u0418 \u043E\u0442\u0432\u0435\u0447\u0430\u0435\u0442 ".concat(ping.probe.status).concat(ping.probe.detail ? ": " + ping.probe.detail : "") : " · но POST к ИИ не проходит: похоже, предварительный запрос отклонён" : "") : ping.status ? "\u041E\u0442\u0432\u0435\u0442\u0438\u043B ".concat(ping.status) + (ping.status === 403 ? " — адрес сайта не совпадает с настройкой ALLOWED_ORIGIN" : "") + (ping.status === 429 ? " — суточная квота на это устройство исчерпана" : "") : "\u041D\u0435 \u0434\u043E\u0437\u0432\u0430\u043B\u0430\u0441\u044C".concat(typeof navigator !== "undefined" && navigator.onLine === false ? " — сети нет" : " — сеть есть, значит молчит сервер"))), lastAiError() && /*#__PURE__*/React.createElement("div", {
+  }, ping.ok ? "\u041E\u0442\u0432\u0435\u0447\u0430\u0435\u0442".concat(ping.data && ping.data.model ? " \xB7 \u043C\u043E\u0434\u0435\u043B\u044C ".concat(ping.data.model) : "") + (ping.data && ping.data.ai === false ? " · но ключ ИИ не задан" : "") + (ping.data && ping.data.sync === false ? " · хранилище не подключено" : "") + (ping.data && ping.data.kv && ping.data.kv !== "ok" && ping.data.kv !== "off" ? " · хранилище отказывает: " + ping.data.kv : "") + (ping.probe ? ping.probe.status === 400 ? " · путь к ИИ открыт" : ping.probe.status === 403 ? " · но общий секрет не совпадает с APP_SECRET в воркере" : ping.probe.status === 429 ? " · но суточная квота исчерпана" : ping.probe.status ? " \xB7 \u043F\u0443\u0442\u044C \u043A \u0418\u0418 \u043E\u0442\u0432\u0435\u0447\u0430\u0435\u0442 ".concat(ping.probe.status).concat(ping.probe.detail ? ": " + ping.probe.detail : "") : " · но POST к ИИ не проходит: похоже, предварительный запрос отклонён" : "") : ping.status ? "\u041E\u0442\u0432\u0435\u0442\u0438\u043B ".concat(ping.status) + (ping.status === 403 ? " — адрес сайта не совпадает с настройкой ALLOWED_ORIGIN" : "") + (ping.status === 429 ? " — суточная квота на это устройство исчерпана" : "") : "\u041D\u0435 \u0434\u043E\u0437\u0432\u0430\u043B\u0430\u0441\u044C".concat(typeof navigator !== "undefined" && navigator.onLine === false ? " — сети нет" : " — сеть есть, значит молчит сервер"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10,
+      alignItems: "center",
+      flexWrap: "wrap",
+      marginTop: 10
+    }
+  }, /*#__PURE__*/React.createElement(Btn, {
+    small: true,
+    tone: "ghost",
+    disabled: askBusy,
+    onClick: async () => {
+      setAskBusy(true);
+      setAskRes(null);
+      const t0 = Date.now();
+      try {
+        const a = await askClaude([{
+          role: "user",
+          content: "Ответь одним словом: привет"
+        }], 32);
+        setAskRes({
+          ok: true,
+          seconds: Math.round((Date.now() - t0) / 100) / 10,
+          text: (a || "").slice(0, 40)
+        });
+      } catch (e) {
+        setAskRes({
+          ok: false,
+          seconds: Math.round((Date.now() - t0) / 100) / 10,
+          name: e && e.name || "Error",
+          status: e && e.status || null,
+          message: String(e && e.message || e).slice(0, 120)
+        });
+      }
+      setAskBusy(false);
+    }
+  }, askBusy ? "Спрашиваю…" : "Задать пробный вопрос"), askRes && /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...sans,
+      fontSize: 13.5,
+      color: askRes.ok ? C.moss : C.blossomText,
+      lineHeight: 1.5
+    }
+  }, askRes.ok ? "\u041E\u0442\u0432\u0435\u0442\u0438\u043B \u0437\u0430 ".concat(askRes.seconds, " \u0441: \xAB").concat(askRes.text, "\xBB") : "\u041D\u0435 \u0432\u044B\u0448\u043B\u043E \u0437\u0430 ".concat(askRes.seconds, " \u0441 \xB7 ").concat(askRes.name).concat(askRes.status ? " · код " + askRes.status : " · без кода", " \xB7 ").concat(askRes.message))), /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...sans,
+      fontSize: 12,
+      color: C.sageText,
+      margin: "6px 0 0",
+      lineHeight: 1.5
+    }
+  }, "\u041F\u0440\u043E\u0431\u043D\u044B\u0439 \u0432\u043E\u043F\u0440\u043E\u0441 \u0438\u0434\u0451\u0442 \u0432\u0435\u0441\u044C \u043F\u0443\u0442\u044C \u0434\u043E \u043C\u043E\u0434\u0435\u043B\u0438 \u0438 \u0442\u0440\u0430\u0442\u0438\u0442 \u043E\u0434\u0438\u043D \u0437\u0430\u043F\u0440\u043E\u0441 \u0438\u0437 \u0441\u0443\u0442\u043E\u0447\u043D\u043E\u0439 \u043A\u0432\u043E\u0442\u044B. \u0415\u0441\u043B\u0438 \u043E\u043D \u043F\u0440\u043E\u0445\u043E\u0434\u0438\u0442, \u0430 \u043D\u0430\u0441\u0442\u043E\u044F\u0449\u0438\u0439 \u0432\u043E\u043F\u0440\u043E\u0441 \u2014 \u043D\u0435\u0442, \u0434\u0435\u043B\u043E \u0432 \u0440\u0430\u0437\u043C\u0435\u0440\u0435 \u0441\u0430\u0434\u0430 \u0438\u043B\u0438 \u0432\u043E \u0432\u0440\u0435\u043C\u0435\u043D\u0438 \u043E\u0442\u0432\u0435\u0442\u0430."), lastAiError() && /*#__PURE__*/React.createElement("div", {
     style: {
       ...sans,
       fontSize: 12.5,
@@ -12744,7 +12807,7 @@ function ProfileSetup(props) {
       margin: "8px 0 0",
       lineHeight: 1.5
     }
-  }, "\u041F\u043E\u0441\u043B\u0435\u0434\u043D\u044F\u044F \u043E\u0448\u0438\u0431\u043A\u0430 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A\u0430: ", lastAiError().name, lastAiError().status ? " \xB7 \u043A\u043E\u0434 ".concat(lastAiError().status) : " · без кода ответа", lastAiError().bytes ? " \xB7 \u0437\u0430\u043F\u0440\u043E\u0441 ".concat(Math.round(lastAiError().bytes / 1024), " \u041A\u0411") : "", lastAiError().message ? " \xB7 ".concat(lastAiError().message) : "", lastAiError().detail ? " \xB7 ".concat(lastAiError().detail) : ""), /*#__PURE__*/React.createElement("p", {
+  }, "\u041F\u043E\u0441\u043B\u0435\u0434\u043D\u044F\u044F \u043E\u0448\u0438\u0431\u043A\u0430 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A\u0430: ", lastAiError().name, lastAiError().status ? " \xB7 \u043A\u043E\u0434 ".concat(lastAiError().status) : " · без кода ответа", lastAiError().bytes ? " \xB7 \u0437\u0430\u043F\u0440\u043E\u0441 ".concat(Math.round(lastAiError().bytes / 1024), " \u041A\u0411") : "", lastAiError().seconds ? " \xB7 \u043E\u0431\u043E\u0440\u0432\u0430\u043B\u043E\u0441\u044C \u0447\u0435\u0440\u0435\u0437 ".concat(lastAiError().seconds, " \u0441") : "", lastAiError().message ? " \xB7 ".concat(lastAiError().message) : "", lastAiError().detail ? " \xB7 ".concat(lastAiError().detail) : ""), /*#__PURE__*/React.createElement("p", {
     style: {
       ...sans,
       fontSize: 12.5,
@@ -12924,22 +12987,22 @@ function HealthView(_ref53) {
     onOpen = _ref53.onOpen,
     onBack = _ref53.onBack,
     onStart = _ref53.onStart;
-  const _useState295 = useState(false),
-    _useState296 = _slicedToArray(_useState295, 2),
-    findOpen = _useState296[0],
-    setFindOpen = _useState296[1];
-  const _useState297 = useState(""),
-    _useState298 = _slicedToArray(_useState297, 2),
-    fPest = _useState298[0],
-    setFPest = _useState298[1];
-  const _useState299 = useState(""),
+  const _useState299 = useState(false),
     _useState300 = _slicedToArray(_useState299, 2),
-    fZone = _useState300[0],
-    setFZone = _useState300[1];
-  const _useState301 = useState([]),
+    findOpen = _useState300[0],
+    setFindOpen = _useState300[1];
+  const _useState301 = useState(""),
     _useState302 = _slicedToArray(_useState301, 2),
-    fPicked = _useState302[0],
-    setFPicked = _useState302[1];
+    fPest = _useState302[0],
+    setFPest = _useState302[1];
+  const _useState303 = useState(""),
+    _useState304 = _slicedToArray(_useState303, 2),
+    fZone = _useState304[0],
+    setFZone = _useState304[1];
+  const _useState305 = useState([]),
+    _useState306 = _slicedToArray(_useState305, 2),
+    fPicked = _useState306[0],
+    setFPicked = _useState306[1];
   const byId = id => (plants || []).find(p => p.id === id);
   const nameOf = id => {
     const p = byId(id);
@@ -13305,26 +13368,26 @@ function VacationView(_ref54) {
     weather = _ref54.weather,
     onBack = _ref54.onBack,
     showToast = _ref54.showToast;
-  const _useState303 = useState(null),
-    _useState304 = _slicedToArray(_useState303, 2),
-    prep = _useState304[0],
-    setPrep = _useState304[1];
-  const _useState305 = useState(false),
-    _useState306 = _slicedToArray(_useState305, 2),
-    prepBusy = _useState306[0],
-    setPrepBusy = _useState306[1];
-  const _useState307 = useState(false),
+  const _useState307 = useState(null),
     _useState308 = _slicedToArray(_useState307, 2),
-    showCal = _useState308[0],
-    setShowCal = _useState308[1];
-  const _useState309 = useState(today()),
+    prep = _useState308[0],
+    setPrep = _useState308[1];
+  const _useState309 = useState(false),
     _useState310 = _slicedToArray(_useState309, 2),
-    from = _useState310[0],
-    setFrom = _useState310[1];
-  const _useState311 = useState(isoDate(new Date(Date.now() + 13 * 86400000))),
+    prepBusy = _useState310[0],
+    setPrepBusy = _useState310[1];
+  const _useState311 = useState(false),
     _useState312 = _slicedToArray(_useState311, 2),
-    to = _useState312[0],
-    setTo = _useState312[1];
+    showCal = _useState312[0],
+    setShowCal = _useState312[1];
+  const _useState313 = useState(today()),
+    _useState314 = _slicedToArray(_useState313, 2),
+    from = _useState314[0],
+    setFrom = _useState314[1];
+  const _useState315 = useState(isoDate(new Date(Date.now() + 13 * 86400000))),
+    _useState316 = _slicedToArray(_useState315, 2),
+    to = _useState316[0],
+    setTo = _useState316[1];
   useEffect(() => {
     (async () => {
       try {
