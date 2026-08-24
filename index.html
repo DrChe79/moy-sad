@@ -429,7 +429,7 @@ function applyTheme(mode) {
   } catch (e) {/* до монтирования — не страшно */}
   return dark;
 }
-const APP_VERSION = "24.08-14:37";
+const APP_VERSION = "24.08-18:14";
 
 /* localStorage хранит строки в UTF-16 — два байта на символ. Браузерные «5 МБ»
    это примерно 2,6 млн символов, а не 5 млн, как считала прежняя версия: порог
@@ -9846,6 +9846,7 @@ function ChatView(_ref39) {
     _useState214 = _slicedToArray(_useState213, 2),
     pendingImage = _useState214[0],
     setPendingImage = _useState214[1];
+  const chatWeightKb = Math.round((messages || []).reduce((acc, m) => acc + (m.image ? m.image.length : 0), 0) / 1024);
   const fileRef = useRef(null);
   const camRef = useRef(null);
   const srcChoose = useRef(null);
@@ -9929,7 +9930,33 @@ function ChatView(_ref39) {
       flexDirection: "column",
       minHeight: "58vh"
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, messages.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      marginBottom: 10,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...sans,
+      fontSize: 12.5,
+      color: C.sageText
+    }
+  }, messages.length, " ", plural(messages.length, "сообщение", "сообщения", "сообщений"), chatWeightKb > 0 ? " \xB7 \u0444\u043E\u0442\u043E \u043D\u0430 ".concat(chatWeightKb, " \u041A\u0411") : ""), /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: 1
+    }
+  }), chatWeightKb > 0 && /*#__PURE__*/React.createElement(Link, {
+    onClick: () => onMessages(messages.map(m => m.image ? {
+      ...m,
+      image: null
+    } : m))
+  }, "\u0443\u0431\u0440\u0430\u0442\u044C \u0444\u043E\u0442\u043E"), /*#__PURE__*/React.createElement(Link, {
+    tone: "danger",
+    onClick: () => onMessages([])
+  }, "\u043E\u0447\u0438\u0441\u0442\u0438\u0442\u044C")), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1
     }
