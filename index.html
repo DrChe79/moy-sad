@@ -429,7 +429,7 @@ function applyTheme(mode) {
   } catch (e) {/* до монтирования — не страшно */}
   return dark;
 }
-const APP_VERSION = "24.08-18:24";
+const APP_VERSION = "24.08-18:55";
 
 /* localStorage хранит строки в UTF-16 — два байта на символ. Браузерные «5 МБ»
    это примерно 2,6 млн символов, а не 5 млн, как считала прежняя версия: порог
@@ -1659,7 +1659,7 @@ function buildGardenContext(plants, journal, profile, outbreaks) {
   });
   return lines.join("\n");
 }
-async function inventoryMatch(item, plants, journal, apartment, profile) {
+async function inventoryMatch(item, plants, journal, apartment, profile, outbreaks) {
   const roster = plants.map(p => "- plantId:\"".concat(p.id, "\" \u2014 ").concat(p.nickname ? p.nickname + " (" + p.name + ")" : p.name)).join("\n");
   const prompt = "\u0422\u044B \u2014 \u043F\u0440\u0430\u043A\u0442\u0438\u0447\u043D\u044B\u0439 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A. \u0412 \u0445\u043E\u0437\u044F\u0439\u0441\u0442\u0432\u0435 \u0435\u0441\u0442\u044C: \"".concat(item.name, "\"").concat(item.note ? " (".concat(item.note, ")") : "", ", \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F: ").concat(invCatT(item.category), ".\n\u041F\u0440\u043E \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u0443: ").concat(apartment, "\n\u0421\u0430\u0434 (\u0443\u0441\u043B\u043E\u0432\u0438\u044F \u0438 \u0443\u0445\u043E\u0434):\n").concat(plants.length > 0 ? buildGardenContext(plants, journal, profile, outbreaks) : "пока пуст", "\n\u0421\u043F\u0438\u0441\u043E\u043A \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0439 \u0441 \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440\u0430\u043C\u0438 \u2014 \u0432 matches \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439 \u0422\u041E\u041B\u042C\u041A\u041E \u044D\u0442\u0438 plantId, \u043A\u043E\u043F\u0438\u0440\u0443\u044F \u0434\u043E\u0441\u043B\u043E\u0432\u043D\u043E:\n").concat(roster || "пусто", "\n\u041E\u043F\u0440\u0435\u0434\u0435\u043B\u0438, \u0447\u0442\u043E \u044D\u0442\u043E \u0437\u0430 \u0441\u0440\u0435\u0434\u0441\u0442\u0432\u043E/\u043F\u0440\u0435\u0434\u043C\u0435\u0442, \u0438 \u043F\u043E\u0434\u0431\u0435\u0440\u0438, \u043A\u0430\u043A\u0438\u043C \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u044F\u043C \u0441\u0430\u0434\u0430 \u043E\u043D\u043E \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u0438 \u043A\u0430\u043A \u0435\u0433\u043E \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0442\u044C.\n\u0414\u043E\u0437\u0438\u0440\u043E\u0432\u043A\u0443 \u043D\u0435 \u043D\u0430\u0437\u044B\u0432\u0430\u0439 \u2014 \u0442\u043E\u043B\u044C\u043A\u043E \u0447\u0430\u0441\u0442\u043E\u0442\u0443 \u0438 \u043E\u0431\u0449\u0438\u0439 \u043F\u0440\u0438\u043D\u0446\u0438\u043F, \u0434\u043E\u0437\u0430 \u0432\u0441\u0435\u0433\u0434\u0430 \u043F\u043E \u044D\u0442\u0438\u043A\u0435\u0442\u043A\u0435.\n\u041E\u0442\u0432\u0435\u0442\u044C \u0422\u041E\u041B\u042C\u041A\u041E \u0432\u0430\u043B\u0438\u0434\u043D\u044B\u043C JSON \u0431\u0435\u0437 markdown:\n{\n \"summary\": \"\u0447\u0442\u043E \u044D\u0442\u043E \u0438 \u0434\u043B\u044F \u0447\u0435\u0433\u043E, 1-2 \u0444\u0440\u0430\u0437\u044B\",\n \"matches\": [{\"plantId\": \"\u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0438\u0437 \u0441\u043F\u0438\u0441\u043A\u0430\", \"how\": \"\u043A\u0430\u043A \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0442\u044C \u0438\u043C\u0435\u043D\u043D\u043E \u0434\u043B\u044F \u043D\u0435\u0433\u043E: \u0447\u0430\u0441\u0442\u043E\u0442\u0430 \u0438 \u043F\u0440\u0438\u043D\u0446\u0438\u043F, \u041A\u041E\u0420\u041E\u0422\u041A\u041E, \u0434\u043E 12 \u0441\u043B\u043E\u0432\"}],\n \"caution\": \"\u043A\u043E\u043C\u0443 \u0438\u0437 \u0441\u0430\u0434\u0430 \u041D\u0415 \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u0438\u043B\u0438 \u0432\u0430\u0436\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u043E\u0441\u0442\u0435\u0440\u0435\u0436\u0435\u043D\u0438\u0435, 1 \u0444\u0440\u0430\u0437\u0430, \u043B\u0438\u0431\u043E null\",\n \"checked\": \"\u0433\u043E\u0442\u043E\u0432\u043E\"\n}\n\u0412\u0410\u0416\u041D\u041E: \u043F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0438 \u0432 matches \u0412\u0421\u0415 \u0431\u0435\u0437 \u0438\u0441\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u044F \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u044F \u0441\u0430\u0434\u0430, \u043A\u043E\u0442\u043E\u0440\u044B\u043C \u0441\u0440\u0435\u0434\u0441\u0442\u0432\u043E \u0443\u043C\u0435\u0441\u0442\u043D\u043E, \u0434\u0430\u0436\u0435 \u0435\u0441\u043B\u0438 \u0438\u0445 \u043C\u043D\u043E\u0433\u043E \u2014 \u043D\u0435 \u0441\u043E\u043A\u0440\u0430\u0449\u0430\u0439 \u0441\u043F\u0438\u0441\u043E\u043A. \u0415\u0441\u043B\u0438 \u043D\u0435 \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u043D\u0438\u043A\u043E\u043C\u0443 \u2014 matches \u043F\u0443\u0441\u0442\u043E\u0439, \u043E\u0431\u044A\u044F\u0441\u043D\u0438 \u0432 summary. \u041A\u043B\u044E\u0447 \"checked\" \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u0435\u043D \u0432\u0441\u0435\u0433\u0434\u0430 \u0438 \u0438\u0434\u0451\u0442 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u043C.");
   const text = await askClaude([{
@@ -1714,7 +1714,7 @@ async function suggestPlacement(name, plants, spotChoices, apartment, isNew) {
   }], 800);
   return parseJson(text);
 }
-async function wishlistVerdict(name, plants, journal, apartment, profile) {
+async function wishlistVerdict(name, plants, journal, apartment, profile, outbreaks) {
   const context = plants.length > 0 ? buildGardenContext(plants, journal, profile, outbreaks) : "сад пока пуст";
   const gone = plants.gone || [];
   const prompt = "\u0422\u044B \u2014 \u0447\u0435\u0441\u0442\u043D\u044B\u0439, \u043D\u043E \u0434\u043E\u0431\u0440\u043E\u0436\u0435\u043B\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0439 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A. \u0427\u0435\u043B\u043E\u0432\u0435\u043A \u043C\u0435\u0447\u0442\u0430\u0435\u0442 \u0437\u0430\u0432\u0435\u0441\u0442\u0438 \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0435: \"".concat(name, "\".\n\u041F\u0440\u043E \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u0443: ").concat(apartment, "\n\u0412\u043E\u0442 \u0435\u0433\u043E \u0442\u0435\u043A\u0443\u0449\u0438\u0439 \u0441\u0430\u0434:\n").concat(context, "\n\u041E\u0446\u0435\u043D\u0438, \u043F\u0440\u0438\u0436\u0438\u0432\u0451\u0442\u0441\u044F \u043B\u0438 \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0435 \u043C\u0435\u0447\u0442\u044B \u0432 \u044D\u0442\u0438\u0445 \u0443\u0441\u043B\u043E\u0432\u0438\u044F\u0445, \u0438 \u043D\u0430 \u0447\u0442\u043E \u043E\u0431\u0440\u0430\u0442\u0438\u0442\u044C \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u0435.\n\u041E\u0442\u0432\u0435\u0442\u044C \u0422\u041E\u041B\u042C\u041A\u041E \u0432\u0430\u043B\u0438\u0434\u043D\u044B\u043C JSON \u0431\u0435\u0437 markdown:\n{\"fit\": \"good\" | \"maybe\" | \"hard\", \"verdict\": \"\u043E\u0446\u0435\u043D\u043A\u0430 \u0438 \u0433\u043B\u0430\u0432\u043D\u044B\u0439 \u0441\u043E\u0432\u0435\u0442, 2-3 \u0444\u0440\u0430\u0437\u044B\", \"toxic\": \"\u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0435, \u0435\u0441\u043B\u0438 \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0435 \u043E\u043F\u0430\u0441\u043D\u043E \u0434\u043B\u044F \u043A\u043E\u0448\u0435\u043A, \u0441\u043E\u0431\u0430\u043A \u0438\u043B\u0438 \u0434\u0435\u0442\u0435\u0439, \u0438\u043D\u0430\u0447\u0435 null\"}");
@@ -1738,7 +1738,7 @@ async function plantAsk(history, plant, entries, apartment, invText, profile) {
   }, ...history.slice(-10)];
   return askClaude(apiMessages, 1400);
 }
-async function needsOrder(needs, plants, journal, apartment, invText, profile) {
+async function needsOrder(needs, plants, journal, apartment, invText, profile, outbreaks) {
   const items = needs.map(n => {
     const p = n.plantId ? plants.find(x => x.id === n.plantId) : null;
     return "\u2022 ".concat(n.text).concat(p ? " (\u0434\u043B\u044F: ".concat(p.nickname || p.name, ")") : " (для сада в целом)");
@@ -4649,6 +4649,7 @@ function MyGarden() {
     plants: active,
     journal: journal,
     profile: profile,
+    outbreaks: outbreaks,
     apartment: apartment,
     onAdd: name => commit({
       wishlist: [{
@@ -4702,6 +4703,7 @@ function MyGarden() {
     profile: profile,
     apartment: apartment,
     invText: invText,
+    outbreaks: outbreaks,
     onAddNeed: t => addNeed(t, null),
     onBuy: buyNeed,
     onRemoveNeed: removeNeed,
@@ -4967,6 +4969,7 @@ function MyGarden() {
     apartment: apartment,
     invText: invText,
     profile: profile,
+    outbreaks: outbreaks,
     messages: chat,
     onMessages: m => commit({
       chat: trimChat(m)
@@ -9835,6 +9838,7 @@ function ChatView(_ref39) {
     apartment = _ref39.apartment,
     invText = _ref39.invText,
     profile = _ref39.profile,
+    outbreaks = _ref39.outbreaks,
     messages = _ref39.messages,
     onMessages = _ref39.onMessages;
   const _useState209 = useState(""),
@@ -10146,6 +10150,7 @@ function WishlistView(_ref40) {
     journal = _ref40.journal,
     apartment = _ref40.apartment,
     profile = _ref40.profile,
+    outbreaks = _ref40.outbreaks,
     onAdd = _ref40.onAdd,
     onRemove = _ref40.onRemove,
     onVerdict = _ref40.onVerdict,
@@ -10178,7 +10183,7 @@ function WishlistView(_ref40) {
   async function check(item) {
     setBusyId(item.id);
     try {
-      const v = await wishlistVerdict(item.name, plants, journal, apartment, profile);
+      const v = await wishlistVerdict(item.name, plants, journal, apartment, profile, outbreaks);
       onVerdict(item.id, {
         fit: v.fit,
         verdict: v.verdict,
@@ -10326,6 +10331,7 @@ function SuppliesView(_ref41) {
     apartment = _ref41.apartment,
     invText = _ref41.invText,
     profile = _ref41.profile,
+    outbreaks = _ref41.outbreaks,
     onAddNeed = _ref41.onAddNeed,
     onBuy = _ref41.onBuy,
     onRemoveNeed = _ref41.onRemoveNeed,
@@ -10360,6 +10366,7 @@ function SuppliesView(_ref41) {
     apartment: apartment,
     invText: invText,
     profile: profile,
+    outbreaks: outbreaks,
     onAdd: onAddNeed,
     onBuy: onBuy,
     onRemove: onRemoveNeed,
@@ -10371,6 +10378,7 @@ function SuppliesView(_ref41) {
     journal: journal,
     apartment: apartment,
     profile: profile,
+    outbreaks: outbreaks,
     onAdd: onAddInv,
     onPatch: onPatchInv,
     onRemove: onRemoveInv,
@@ -10386,6 +10394,7 @@ function NeedsView(_ref42) {
     apartment = _ref42.apartment,
     invText = _ref42.invText,
     profile = _ref42.profile,
+    outbreaks = _ref42.outbreaks,
     onAdd = _ref42.onAdd,
     onBuy = _ref42.onBuy,
     onRemove = _ref42.onRemove,
@@ -10417,7 +10426,7 @@ function NeedsView(_ref42) {
   async function makeOrder() {
     setAiBusy(true);
     try {
-      const answer = await needsOrder(needs, plants, journal, apartment, invText, profile);
+      const answer = await needsOrder(needs, plants, journal, apartment, invText, profile, outbreaks);
       setOrder((answer || "").trim());
     } catch (e) {
       showToast(aiMessage(e));
@@ -10605,6 +10614,7 @@ function InventoryView(_ref45) {
     journal = _ref45.journal,
     apartment = _ref45.apartment,
     profile = _ref45.profile,
+    outbreaks = _ref45.outbreaks,
     onAdd = _ref45.onAdd,
     onPatch = _ref45.onPatch,
     onRemove = _ref45.onRemove,
@@ -10672,7 +10682,7 @@ function InventoryView(_ref45) {
   async function match(item) {
     setBusyId(item.id);
     try {
-      const r = await inventoryMatch(item, plants, journal, apartment, profile);
+      const r = await inventoryMatch(item, plants, journal, apartment, profile, outbreaks);
       const norm = s => (s || "").toString().toLowerCase().trim();
       const resolved = (r.matches || []).map(m => {
         let pp = m.plantId ? plants.find(x => x.id === m.plantId) : null;
