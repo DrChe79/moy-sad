@@ -429,7 +429,7 @@ function applyTheme(mode) {
   } catch (e) {/* до монтирования — не страшно */}
   return dark;
 }
-const APP_VERSION = "24.08-13:24";
+const APP_VERSION = "24.08-13:42";
 
 /* localStorage хранит строки в UTF-16 — два байта на символ. Браузерные «5 МБ»
    это примерно 2,6 млн символов, а не 5 млн, как считала прежняя версия: порог
@@ -712,7 +712,12 @@ function aiMessage(err, fallback) {
      правда нет, и когда она есть, а прокси не ответил. Это разные починки. */
   if (!st) {
     const offline = typeof navigator !== "undefined" && navigator.onLine === false;
-    return offline ? "Нет сети — садовник ответит, когда связь вернётся" : "Садовник не ответил. Связь есть, значит дело в сервере — проверьте её в настройках";
+    if (offline) return "Нет сети — садовник ответит, когда связь вернётся";
+    const kbs = err && err.bytes ? Math.round(err.bytes / 1024) : 0;
+    if (kbs > 400) {
+      return "\u0417\u0430\u043F\u0440\u043E\u0441 \u043D\u0435 \u0443\u0448\u0451\u043B \u2014 \u043E\u043D \u0432\u0435\u0441\u0438\u0442 ".concat(kbs, " \u041A\u0411, \u044D\u0442\u043E \u0441\u043B\u0438\u0448\u043A\u043E\u043C \u043C\u043D\u043E\u0433\u043E. \u041E\u0447\u0438\u0441\u0442\u0438\u0442\u0435 \u043F\u0435\u0440\u0435\u043F\u0438\u0441\u043A\u0443: \u0444\u043E\u0442\u043E\u0433\u0440\u0430\u0444\u0438\u0438 \u0432 \u043D\u0435\u0439 \u0438 \u0435\u0441\u0442\u044C \u0432\u0435\u0441");
+    }
+    return "Садовник не ответил. Связь есть, значит дело в сервере — проверьте её в настройках";
   }
   return fallback || "Садовник задумался — попробуйте ещё раз";
 }
@@ -1440,21 +1445,31 @@ function weatherHints(w, balconyPlants, profile) {
 /* ─────────────────────────  Работа с ИИ  ───────────────────────── */
 async function askClaude(messages, maxTokens) {
   if (!AI_READY) throw new Error("proxy not configured");
-  const response = await fetch(PROXY_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(APP_SECRET ? {
-        "X-Garden-Key": APP_SECRET
-      } : {}),
-      "X-Garden-Client": clientId()
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: maxTokens || 1600,
-      messages
-    })
+  const payload = JSON.stringify({
+    model: "claude-sonnet-4-6",
+    max_tokens: maxTokens || 1600,
+    messages
   });
+  let response;
+  try {
+    response = await fetch(PROXY_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(APP_SECRET ? {
+          "X-Garden-Key": APP_SECRET
+        } : {}),
+        "X-Garden-Client": clientId()
+      },
+      body: payload
+    });
+  } catch (e) {
+    /* Сбой на уровне fetch кода ответа не даёт. Запоминаем вес запроса:
+       чаще всего дело именно в нём — фотографии в переписке. */
+    const err = new Error("network");
+    err.bytes = payload.length;
+    throw err;
+  }
   if (!response.ok) throw aiError(response.status);
   const data = await response.json();
   return (data.content || []).map(b => b.type === "text" ? b.text : "").filter(Boolean).join("\n");
@@ -12544,6 +12559,8 @@ function ProfileSetup(props) {
     onClick: async () => {
       setPingBusy(true);
       setPing(null);
+      /* Шаг 1 — служебный адрес: жив ли воркер вообще. */
+      let health = null;
       try {
         const r = await fetch(SYNC_BASE + "/health", {
           cache: "no-store"
@@ -12552,18 +12569,51 @@ function ProfileSetup(props) {
         try {
           j = await r.json();
         } catch (e) {/* не JSON — тоже показатель */}
-        setPing({
+        health = {
           ok: r.ok,
           status: r.status,
           data: j
-        });
+        };
       } catch (e) {
-        setPing({
+        health = {
           ok: false,
-          status: null,
-          error: String(e && e.message || e)
-        });
+          status: null
+        };
       }
+      /* Шаг 2 — тот же путь, что у настоящего запроса: POST с общим
+         секретом и заголовками. Пустой список сообщений воркер
+         отвергает до обращения к ИИ, так что квота не тратится,
+         а предварительный запрос OPTIONS и проверка секрета
+         отрабатывают по-настоящему. */
+      let probe = null;
+      if (health.ok) {
+        try {
+          const r2 = await fetch(SYNC_BASE, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(APP_SECRET ? {
+                "X-Garden-Key": APP_SECRET
+              } : {}),
+              "X-Garden-Client": clientId()
+            },
+            body: JSON.stringify({
+              messages: []
+            })
+          });
+          probe = {
+            status: r2.status
+          };
+        } catch (e) {
+          probe = {
+            status: null
+          };
+        }
+      }
+      setPing({
+        ...health,
+        probe
+      });
       setPingBusy(false);
     }
   }, pingBusy ? "Проверяю…" : "Проверить связь"), ping && /*#__PURE__*/React.createElement("span", {
@@ -12573,7 +12623,7 @@ function ProfileSetup(props) {
       color: ping.ok ? C.moss : C.blossomText,
       lineHeight: 1.5
     }
-  }, ping.ok ? "\u041E\u0442\u0432\u0435\u0447\u0430\u0435\u0442".concat(ping.data && ping.data.model ? " \xB7 \u043C\u043E\u0434\u0435\u043B\u044C ".concat(ping.data.model) : "") + (ping.data && ping.data.ai === false ? " · но ключ ИИ не задан" : "") + (ping.data && ping.data.sync === false ? " · хранилище не подключено" : "") : ping.status ? "\u041E\u0442\u0432\u0435\u0442\u0438\u043B ".concat(ping.status) + (ping.status === 403 ? " — адрес сайта не совпадает с настройкой ALLOWED_ORIGIN" : "") + (ping.status === 429 ? " — суточная квота на это устройство исчерпана" : "") : "\u041D\u0435 \u0434\u043E\u0437\u0432\u0430\u043B\u0430\u0441\u044C".concat(typeof navigator !== "undefined" && navigator.onLine === false ? " — сети нет" : " — сеть есть, значит молчит сервер"))), /*#__PURE__*/React.createElement("p", {
+  }, ping.ok ? "\u041E\u0442\u0432\u0435\u0447\u0430\u0435\u0442".concat(ping.data && ping.data.model ? " \xB7 \u043C\u043E\u0434\u0435\u043B\u044C ".concat(ping.data.model) : "") + (ping.data && ping.data.ai === false ? " · но ключ ИИ не задан" : "") + (ping.data && ping.data.sync === false ? " · хранилище не подключено" : "") + (ping.probe ? ping.probe.status === 400 ? " · путь к ИИ открыт" : ping.probe.status === 403 ? " · но общий секрет не совпадает с APP_SECRET в воркере" : ping.probe.status === 429 ? " · но суточная квота исчерпана" : ping.probe.status ? " \xB7 \u043F\u0443\u0442\u044C \u043A \u0418\u0418 \u043E\u0442\u0432\u0435\u0447\u0430\u0435\u0442 ".concat(ping.probe.status) : " · но POST к ИИ не проходит: похоже, предварительный запрос отклонён" : "") : ping.status ? "\u041E\u0442\u0432\u0435\u0442\u0438\u043B ".concat(ping.status) + (ping.status === 403 ? " — адрес сайта не совпадает с настройкой ALLOWED_ORIGIN" : "") + (ping.status === 429 ? " — суточная квота на это устройство исчерпана" : "") : "\u041D\u0435 \u0434\u043E\u0437\u0432\u0430\u043B\u0430\u0441\u044C".concat(typeof navigator !== "undefined" && navigator.onLine === false ? " — сети нет" : " — сеть есть, значит молчит сервер"))), /*#__PURE__*/React.createElement("p", {
     style: {
       ...sans,
       fontSize: 12.5,
