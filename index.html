@@ -429,7 +429,7 @@ function applyTheme(mode) {
   } catch (e) {/* до монтирования — не страшно */}
   return dark;
 }
-const APP_VERSION = "24.08-11:16";
+const APP_VERSION = "24.08-13:24";
 
 /* localStorage хранит строки в UTF-16 — два байта на символ. Браузерные «5 МБ»
    это примерно 2,6 млн символов, а не 5 млн, как считала прежняя версия: порог
@@ -708,7 +708,12 @@ function aiMessage(err, fallback) {
   if (st === 401 || st === 404 || st === 400) return "Садовник не настроен — нужна правка на сервере";
   if (st === 413) return "Слишком большой запрос — попробуйте фото поменьше";
   if (st && st >= 500) return "Садовник сейчас занят — попробуйте через минуту";
-  if (!st) return "Не дозвалась до садовника — похоже, нет связи";
+  /* Раньше любой сбой на уровне fetch назывался «нет связи» — и когда сети
+     правда нет, и когда она есть, а прокси не ответил. Это разные починки. */
+  if (!st) {
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    return offline ? "Нет сети — садовник ответит, когда связь вернётся" : "Садовник не ответил. Связь есть, значит дело в сервере — проверьте её в настройках";
+  }
   return fallback || "Садовник задумался — попробуйте ещё раз";
 }
 function globalCss() {
@@ -11726,74 +11731,82 @@ function ProfileSetup(props) {
     _useState256 = _slicedToArray(_useState255, 2),
     spots = _useState256[0],
     setSpots = _useState256[1];
-  const _useState257 = useState(profile && profile.notes || ""),
+  const _useState257 = useState(null),
     _useState258 = _slicedToArray(_useState257, 2),
-    notes = _useState258[0],
-    setNotes = _useState258[1];
-  const _useState259 = useState(profile && profile.city || ""),
+    ping = _useState258[0],
+    setPing = _useState258[1];
+  const _useState259 = useState(false),
     _useState260 = _slicedToArray(_useState259, 2),
-    city = _useState260[0],
-    setCity = _useState260[1];
-  const _useState261 = useState(profile && profile.person || ""),
+    pingBusy = _useState260[0],
+    setPingBusy = _useState260[1];
+  const _useState261 = useState(profile && profile.notes || ""),
     _useState262 = _slicedToArray(_useState261, 2),
-    person = _useState262[0],
-    setPerson = _useState262[1];
-  const _useState263 = useState(profile && profile.water || ""),
+    notes = _useState262[0],
+    setNotes = _useState262[1];
+  const _useState263 = useState(profile && profile.city || ""),
     _useState264 = _slicedToArray(_useState263, 2),
-    waterKind = _useState264[0],
-    setWaterKind = _useState264[1];
-  const _useState265 = useState(!!(profile && profile.heatingOn)),
+    city = _useState264[0],
+    setCity = _useState264[1];
+  const _useState265 = useState(profile && profile.person || ""),
     _useState266 = _slicedToArray(_useState265, 2),
-    heatingOn = _useState266[0],
-    setHeatingOn = _useState266[1];
-  const _useState267 = useState(profile && profile.careDays || []),
+    person = _useState266[0],
+    setPerson = _useState266[1];
+  const _useState267 = useState(profile && profile.water || ""),
     _useState268 = _slicedToArray(_useState267, 2),
-    careDays = _useState268[0],
-    setCareDays = _useState268[1];
-  const _useState269 = useState(profile && profile.notifyHour != null ? profile.notifyHour : 9),
+    waterKind = _useState268[0],
+    setWaterKind = _useState268[1];
+  const _useState269 = useState(!!(profile && profile.heatingOn)),
     _useState270 = _slicedToArray(_useState269, 2),
-    notifyHour = _useState270[0],
-    setNotifyHour = _useState270[1];
-  const _useState271 = useState(profile && profile.theme || "auto"),
+    heatingOn = _useState270[0],
+    setHeatingOn = _useState270[1];
+  const _useState271 = useState(profile && profile.careDays || []),
     _useState272 = _slicedToArray(_useState271, 2),
-    theme = _useState272[0],
-    setTheme = _useState272[1];
-  const _useState273 = useState(false),
+    careDays = _useState272[0],
+    setCareDays = _useState272[1];
+  const _useState273 = useState(profile && profile.notifyHour != null ? profile.notifyHour : 9),
     _useState274 = _slicedToArray(_useState273, 2),
-    cityBusy = _useState274[0],
-    setCityBusy = _useState274[1];
-  const _useState275 = useState(null),
+    notifyHour = _useState274[0],
+    setNotifyHour = _useState274[1];
+  const _useState275 = useState(profile && profile.theme || "auto"),
     _useState276 = _slicedToArray(_useState275, 2),
-    cityCheck = _useState276[0],
-    setCityCheck = _useState276[1];
+    theme = _useState276[0],
+    setTheme = _useState276[1];
   const _useState277 = useState(false),
     _useState278 = _slicedToArray(_useState277, 2),
-    auditBusy = _useState278[0],
-    setAuditBusy = _useState278[1];
+    cityBusy = _useState278[0],
+    setCityBusy = _useState278[1];
   const _useState279 = useState(null),
     _useState280 = _slicedToArray(_useState279, 2),
-    audit = _useState280[0],
-    setAudit = _useState280[1];
-  const _useState281 = useState({}),
+    cityCheck = _useState280[0],
+    setCityCheck = _useState280[1];
+  const _useState281 = useState(false),
     _useState282 = _slicedToArray(_useState281, 2),
-    moved = _useState282[0],
-    setMoved = _useState282[1];
-  const _useState283 = useState(""),
+    auditBusy = _useState282[0],
+    setAuditBusy = _useState282[1];
+  const _useState283 = useState(null),
     _useState284 = _slicedToArray(_useState283, 2),
-    connCode = _useState284[0],
-    setConnCode = _useState284[1];
-  const _useState285 = useState(false),
+    audit = _useState284[0],
+    setAudit = _useState284[1];
+  const _useState285 = useState({}),
     _useState286 = _slicedToArray(_useState285, 2),
-    copied = _useState286[0],
-    setCopied = _useState286[1];
-  const _useState287 = useState(false),
+    moved = _useState286[0],
+    setMoved = _useState286[1];
+  const _useState287 = useState(""),
     _useState288 = _slicedToArray(_useState287, 2),
-    showStorage = _useState288[0],
-    setShowStorage = _useState288[1];
-  const _useState289 = useState(null),
+    connCode = _useState288[0],
+    setConnCode = _useState288[1];
+  const _useState289 = useState(false),
     _useState290 = _slicedToArray(_useState289, 2),
-    askLocal = _useState290[0],
-    setAskLocal = _useState290[1];
+    copied = _useState290[0],
+    setCopied = _useState290[1];
+  const _useState291 = useState(false),
+    _useState292 = _slicedToArray(_useState291, 2),
+    showStorage = _useState292[0],
+    setShowStorage = _useState292[1];
+  const _useState293 = useState(null),
+    _useState294 = _slicedToArray(_useState293, 2),
+    askLocal = _useState294[0],
+    setAskLocal = _useState294[1];
   const wpRef = useRef(null);
   async function checkCity() {
     const c = city.trim();
@@ -12503,7 +12516,72 @@ function ProfileSetup(props) {
         color: C.sageText
       }
     }, shots, " \u0444\u043E\u0442\u043E \xB7 ", kb(bytes)));
-  })), syncAvailable && /*#__PURE__*/React.createElement("div", {
+  })), SYNC_BASE && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 26,
+      paddingTop: 18,
+      borderTop: "1px solid ".concat(C.line)
+    }
+  }, /*#__PURE__*/React.createElement("h3", {
+    style: {
+      ...serif,
+      fontWeight: 400,
+      fontSize: 20,
+      margin: "0 0 8px",
+      color: C.ink
+    }
+  }, "\u0421\u0432\u044F\u0437\u044C \u0441 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A\u043E\u043C"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10,
+      alignItems: "center",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement(Btn, {
+    small: true,
+    tone: "ghost",
+    disabled: pingBusy,
+    onClick: async () => {
+      setPingBusy(true);
+      setPing(null);
+      try {
+        const r = await fetch(SYNC_BASE + "/health", {
+          cache: "no-store"
+        });
+        let j = null;
+        try {
+          j = await r.json();
+        } catch (e) {/* не JSON — тоже показатель */}
+        setPing({
+          ok: r.ok,
+          status: r.status,
+          data: j
+        });
+      } catch (e) {
+        setPing({
+          ok: false,
+          status: null,
+          error: String(e && e.message || e)
+        });
+      }
+      setPingBusy(false);
+    }
+  }, pingBusy ? "Проверяю…" : "Проверить связь"), ping && /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...sans,
+      fontSize: 13.5,
+      color: ping.ok ? C.moss : C.blossomText,
+      lineHeight: 1.5
+    }
+  }, ping.ok ? "\u041E\u0442\u0432\u0435\u0447\u0430\u0435\u0442".concat(ping.data && ping.data.model ? " \xB7 \u043C\u043E\u0434\u0435\u043B\u044C ".concat(ping.data.model) : "") + (ping.data && ping.data.ai === false ? " · но ключ ИИ не задан" : "") + (ping.data && ping.data.sync === false ? " · хранилище не подключено" : "") : ping.status ? "\u041E\u0442\u0432\u0435\u0442\u0438\u043B ".concat(ping.status) + (ping.status === 403 ? " — адрес сайта не совпадает с настройкой ALLOWED_ORIGIN" : "") + (ping.status === 429 ? " — суточная квота на это устройство исчерпана" : "") : "\u041D\u0435 \u0434\u043E\u0437\u0432\u0430\u043B\u0430\u0441\u044C".concat(typeof navigator !== "undefined" && navigator.onLine === false ? " — сети нет" : " — сеть есть, значит молчит сервер"))), /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...sans,
+      fontSize: 12.5,
+      color: C.sageText,
+      margin: "8px 0 0",
+      lineHeight: 1.5
+    }
+  }, "\u041F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u043D\u0435 \u0442\u0440\u0430\u0442\u0438\u0442 \u0441\u0443\u0442\u043E\u0447\u043D\u0443\u044E \u043A\u0432\u043E\u0442\u0443: \u043E\u043D\u0430 \u0441\u0442\u0443\u0447\u0438\u0442\u0441\u044F \u0432 \u0441\u043B\u0443\u0436\u0435\u0431\u043D\u044B\u0439 \u0430\u0434\u0440\u0435\u0441, \u0430 \u043D\u0435 \u043A \u0418\u0418.")), syncAvailable && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 26,
       paddingTop: 18,
@@ -12675,22 +12753,22 @@ function HealthView(_ref53) {
     onOpen = _ref53.onOpen,
     onBack = _ref53.onBack,
     onStart = _ref53.onStart;
-  const _useState291 = useState(false),
-    _useState292 = _slicedToArray(_useState291, 2),
-    findOpen = _useState292[0],
-    setFindOpen = _useState292[1];
-  const _useState293 = useState(""),
-    _useState294 = _slicedToArray(_useState293, 2),
-    fPest = _useState294[0],
-    setFPest = _useState294[1];
-  const _useState295 = useState(""),
+  const _useState295 = useState(false),
     _useState296 = _slicedToArray(_useState295, 2),
-    fZone = _useState296[0],
-    setFZone = _useState296[1];
-  const _useState297 = useState([]),
+    findOpen = _useState296[0],
+    setFindOpen = _useState296[1];
+  const _useState297 = useState(""),
     _useState298 = _slicedToArray(_useState297, 2),
-    fPicked = _useState298[0],
-    setFPicked = _useState298[1];
+    fPest = _useState298[0],
+    setFPest = _useState298[1];
+  const _useState299 = useState(""),
+    _useState300 = _slicedToArray(_useState299, 2),
+    fZone = _useState300[0],
+    setFZone = _useState300[1];
+  const _useState301 = useState([]),
+    _useState302 = _slicedToArray(_useState301, 2),
+    fPicked = _useState302[0],
+    setFPicked = _useState302[1];
   const byId = id => (plants || []).find(p => p.id === id);
   const nameOf = id => {
     const p = byId(id);
@@ -13056,26 +13134,26 @@ function VacationView(_ref54) {
     weather = _ref54.weather,
     onBack = _ref54.onBack,
     showToast = _ref54.showToast;
-  const _useState299 = useState(null),
-    _useState300 = _slicedToArray(_useState299, 2),
-    prep = _useState300[0],
-    setPrep = _useState300[1];
-  const _useState301 = useState(false),
-    _useState302 = _slicedToArray(_useState301, 2),
-    prepBusy = _useState302[0],
-    setPrepBusy = _useState302[1];
-  const _useState303 = useState(false),
+  const _useState303 = useState(null),
     _useState304 = _slicedToArray(_useState303, 2),
-    showCal = _useState304[0],
-    setShowCal = _useState304[1];
-  const _useState305 = useState(today()),
+    prep = _useState304[0],
+    setPrep = _useState304[1];
+  const _useState305 = useState(false),
     _useState306 = _slicedToArray(_useState305, 2),
-    from = _useState306[0],
-    setFrom = _useState306[1];
-  const _useState307 = useState(isoDate(new Date(Date.now() + 13 * 86400000))),
+    prepBusy = _useState306[0],
+    setPrepBusy = _useState306[1];
+  const _useState307 = useState(false),
     _useState308 = _slicedToArray(_useState307, 2),
-    to = _useState308[0],
-    setTo = _useState308[1];
+    showCal = _useState308[0],
+    setShowCal = _useState308[1];
+  const _useState309 = useState(today()),
+    _useState310 = _slicedToArray(_useState309, 2),
+    from = _useState310[0],
+    setFrom = _useState310[1];
+  const _useState311 = useState(isoDate(new Date(Date.now() + 13 * 86400000))),
+    _useState312 = _slicedToArray(_useState311, 2),
+    to = _useState312[0],
+    setTo = _useState312[1];
   useEffect(() => {
     (async () => {
       try {
