@@ -429,7 +429,7 @@ function applyTheme(mode) {
   } catch (e) {/* до монтирования — не страшно */}
   return dark;
 }
-const APP_VERSION = "24.08-13:42";
+const APP_VERSION = "24.08-13:56";
 
 /* localStorage хранит строки в UTF-16 — два байта на символ. Браузерные «5 МБ»
    это примерно 2,6 млн символов, а не 5 млн, как считала прежняя версия: порог
@@ -9749,6 +9749,43 @@ function EditPlant(_ref38) {
   }, "\u041E\u0442\u043C\u0435\u043D\u0430")));
 }
 
+/* Прокси принимает не больше ~0,9 МБ. Считаем вес заранее и снимаем
+   фотографии с самых старых сообщений, пока не поместимся: лучше отправить
+   вопрос без части кадров, чем получить обрыв связи. */
+const MAX_SEND_CHARS = 700000;
+function fitPayload(messages) {
+  let out = messages.slice();
+  const weight = () => JSON.stringify(out).length;
+  while (weight() > MAX_SEND_CHARS) {
+    /* самый старый блок с картинкой, но не последний */
+    let idx = -1;
+    for (let i = 0; i < out.length - 1; i++) {
+      if (Array.isArray(out[i].content)) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx < 0) break;
+    const textPart = (out[idx].content.find(b => b.type === "text") || {}).text || "";
+    out[idx] = {
+      role: out[idx].role,
+      content: (textPart + " (фото было выше)").trim()
+    };
+  }
+  /* если и последний кадр не помещается — отправляем без него */
+  if (weight() > MAX_SEND_CHARS) {
+    out = out.map(m => {
+      if (!Array.isArray(m.content)) return m;
+      const textPart = (m.content.find(b => b.type === "text") || {}).text || "";
+      return {
+        role: m.role,
+        content: (textPart + " (фото не поместилось в запрос)").trim()
+      };
+    });
+  }
+  return out;
+}
+
 /* ─────────────────────────  Чат-садовник  ───────────────────────── */
 function ChatView(_ref39) {
   let plants = _ref39.plants,
@@ -9788,7 +9825,7 @@ function ChatView(_ref39) {
     if (!f) return;
     setSrcOpen(false);
     try {
-      setPendingImage(await compressImage(f, 900, 0.8));
+      setPendingImage(await compressImage(f, 760, 0.72));
     } catch (er) {/* пропустим */}
     e.target.value = "";
   }
@@ -9830,7 +9867,11 @@ function ChatView(_ref39) {
         role: m.role,
         content: m.content
       })];
-      const answer = await askClaude(apiMessages, 1600);
+      /* Тело запроса ограничено на прокси. Фотографии в переписке весят
+         в разы больше всего остального, поэтому лишние кадры убираем перед
+         отправкой — начиная с самых старых. Последний снимок остаётся:
+         обычно вопрос именно про него. */
+      const answer = await askClaude(fitPayload(apiMessages), 1600);
       onMessages([...nextMsgs, {
         role: "assistant",
         content: answer || "…"
