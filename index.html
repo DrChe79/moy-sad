@@ -429,7 +429,7 @@ function applyTheme(mode) {
   } catch (e) {/* до монтирования — не страшно */}
   return dark;
 }
-const APP_VERSION = "24.08-10:45";
+const APP_VERSION = "24.08-11:03";
 
 /* localStorage хранит строки в UTF-16 — два байта на символ. Браузерные «5 МБ»
    это примерно 2,6 млн символов, а не 5 млн, как считала прежняя версия: порог
@@ -1173,6 +1173,97 @@ function pestGap(v, warm) {
   return warm === false ? p.gapCold : p.gap;
 }
 
+/* ─────────────────────────  Вспышка: событие сада, а не растения  ─────────────────────────
+   Вредители расселяются по месту. Лечить один горшок и не тронуть соседний —
+   самый частый способ провалить курс: через три недели сосед вернёт вредителя.
+   Поэтому курс принадлежит зоне, а не растению: одна дата обработки на всех,
+   и видно, кого пропустили. */
+
+function zoneOf(p) {
+  if (!p) return "";
+  const spot = (p.spot || "").trim();
+  if (spot) return spot;
+  return p.location === "balcony" ? "балкон" : "дома";
+}
+function zoneNeighbors(p, plants) {
+  const z = zoneOf(p);
+  return (plants || []).filter(x => x.id !== p.id && (x.status || "active") === "active" && zoneOf(x) === z);
+}
+function makeOutbreak(p, plants, pestKind, issue, plan, gap) {
+  const pk = pest(pestKind);
+  const stamp = now();
+  const members = [{
+    plantId: p.id,
+    role: "infected",
+    foundAt: stamp,
+    clearedAt: null
+  }].concat(zoneNeighbors(p, plants).map(x => ({
+    plantId: x.id,
+    role: "watch",
+    foundAt: stamp,
+    clearedAt: null
+  })));
+  return {
+    id: uid(),
+    pest: pestKind || "other",
+    issue: issue || pk.t,
+    startedAt: stamp,
+    endedAt: null,
+    status: "active",
+    zone: zoneOf(p),
+    members,
+    roundsPlanned: pk.rounds,
+    gap,
+    rounds: [],
+    plan: plan || [],
+    checkDate: isoDate(new Date(Date.now() + gap * 86400000)),
+    updatedAt: Date.now()
+  };
+}
+const activeOutbreaks = outbreaks => (outbreaks || []).filter(o => o.status === "active");
+
+/* Роль участника («заражён» / «под наблюдением») не меняется никогда — это
+   природа его участия. Выздоровление отмечается датой clearedAt, иначе
+   после закрытия курса становится не видно, кто именно болел, и история
+   вредителей по растению пропадает. */
+function outbreakOf(plantId, outbreaks) {
+  return (outbreaks || []).find(o => o.status === "active" && (o.members || []).some(m => m.plantId === plantId && !m.clearedAt)) || null;
+}
+function roleIn(o, plantId) {
+  const m = o && (o.members || []).find(x => x.plantId === plantId);
+  return m ? m.role : null;
+}
+function pestHistoryOf(plantId, outbreaks) {
+  return (outbreaks || []).filter(o => o.status !== "active" && (o.members || []).some(m => m.plantId === plantId && m.role === "infected")).sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+}
+
+/* Мост к прежнему виду карточки: она умела читать plant.treatment.
+   Источник правды теперь вспышка, а форма ответа осталась прежней. */
+function treatmentOf(p, outbreaks) {
+  const o = outbreakOf(p && p.id, outbreaks);
+  if (!o || roleIn(o, p.id) !== "infected") return null;
+  return {
+    active: true,
+    outbreakId: o.id,
+    issue: o.issue,
+    pest: o.pest,
+    plan: o.plan || [],
+    rounds: o.rounds || [],
+    roundsPlanned: o.roundsPlanned,
+    gap: o.gap,
+    checkDate: o.checkDate,
+    startedAt: o.startedAt
+  };
+}
+
+/* Сколько участников зоны пропустили в последней обработке */
+function missedInLastRound(o) {
+  const last = (o.rounds || [])[(o.rounds || []).length - 1];
+  if (!last) return [];
+  const done = last.plantIds || [];
+  return (o.members || []).filter(m => !m.clearedAt && done.indexOf(m.plantId) < 0).map(m => m.plantId);
+}
+
 /* ─────────────────────────  Погода (Open-Meteo, без ключей)  ───────────────────────── */
 async function geocodeCity(city) {
   const url = "https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(city) + "&count=1&language=ru&format=json";
@@ -1490,19 +1581,25 @@ async function diagnosePlant(imageBase64, mediaType, plant, apartment, invText, 
   }], 1600);
   return parseJsonSalvage(text);
 }
-function buildGardenContext(plants, journal, profile) {
+function buildGardenContext(plants, journal, profile, outbreaks) {
+  const sickBy = {};
+  activeOutbreaks(outbreaks).forEach(o => {
+    (o.members || []).forEach(m => {
+      if (m.role === "infected") sickBy[m.plantId] = o.issue;
+    });
+  });
   const lines = plants.map(p => {
     const dw = daysSince(p.lastWatered || p.addedAt);
     const iv = waterInterval(p, profile);
     const recent = (journal[p.id] || []).slice(0, 3).map(e => "".concat(fmtDate(e.date), ": ").concat(e.text)).join("; ");
     const bk = p.location === "balcony" ? plantBalconyKind(p, profile) : null;
-    return "\u2022 ".concat(p.name).concat(p.nickname ? " (\xAB".concat(p.nickname, "\xBB)") : "", " (").concat(p.care && p.care.latinName || "?", ") \u2014 ").concat(p.location === "balcony" ? "балкон" + (bk ? " (" + balconyKindLong(bk) + ")" : "") : "дома").concat(p.spot ? ", ".concat(p.spot) : "", "; \u043F\u043E\u043B\u0438\u0432 \u043A\u0430\u0436\u0434\u044B\u0435 ").concat(iv || "?", " \u0434\u043D. (").concat(seasonLabel(profile), "), \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0439 \u043F\u043E\u043B\u0438\u0432 ").concat(dw === null ? "неизвестно" : dw + " дн. назад", ".").concat(p.ownedSince ? " У хозяев с " + fmtMonth(p.ownedSince) + "." : "").concat(p.potCm ? " Горшок " + p.potCm + " см." : "").concat(p.lastRepot ? " Пересажено " + fmtMonth(p.lastRepot) + "." : "").concat(p.treatment && p.treatment.active ? " СЕЙЧАС ЛЕЧИТСЯ: " + p.treatment.issue + " — подкормки отменены." : "").concat(p.story ? " Личная история: " + String(p.story).slice(0, 220) : "").concat(recent ? " Недавнее: " + recent : "");
+    return "\u2022 ".concat(p.name).concat(p.nickname ? " (\xAB".concat(p.nickname, "\xBB)") : "", " (").concat(p.care && p.care.latinName || "?", ") \u2014 ").concat(p.location === "balcony" ? "балкон" + (bk ? " (" + balconyKindLong(bk) + ")" : "") : "дома").concat(p.spot ? ", ".concat(p.spot) : "", "; \u043F\u043E\u043B\u0438\u0432 \u043A\u0430\u0436\u0434\u044B\u0435 ").concat(iv || "?", " \u0434\u043D. (").concat(seasonLabel(profile), "), \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0439 \u043F\u043E\u043B\u0438\u0432 ").concat(dw === null ? "неизвестно" : dw + " дн. назад", ".").concat(p.ownedSince ? " У хозяев с " + fmtMonth(p.ownedSince) + "." : "").concat(p.potCm ? " Горшок " + p.potCm + " см." : "").concat(p.lastRepot ? " Пересажено " + fmtMonth(p.lastRepot) + "." : "").concat(sickBy[p.id] ? " СЕЙЧАС ЛЕЧИТСЯ: " + sickBy[p.id] + " — подкормки отменены." : "").concat(p.story ? " Личная история: " + String(p.story).slice(0, 220) : "").concat(recent ? " Недавнее: " + recent : "");
   });
   return lines.join("\n");
 }
 async function inventoryMatch(item, plants, journal, apartment, profile) {
   const roster = plants.map(p => "- plantId:\"".concat(p.id, "\" \u2014 ").concat(p.nickname ? p.nickname + " (" + p.name + ")" : p.name)).join("\n");
-  const prompt = "\u0422\u044B \u2014 \u043F\u0440\u0430\u043A\u0442\u0438\u0447\u043D\u044B\u0439 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A. \u0412 \u0445\u043E\u0437\u044F\u0439\u0441\u0442\u0432\u0435 \u0435\u0441\u0442\u044C: \"".concat(item.name, "\"").concat(item.note ? " (".concat(item.note, ")") : "", ", \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F: ").concat(invCatT(item.category), ".\n\u041F\u0440\u043E \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u0443: ").concat(apartment, "\n\u0421\u0430\u0434 (\u0443\u0441\u043B\u043E\u0432\u0438\u044F \u0438 \u0443\u0445\u043E\u0434):\n").concat(plants.length > 0 ? buildGardenContext(plants, journal, profile) : "пока пуст", "\n\u0421\u043F\u0438\u0441\u043E\u043A \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0439 \u0441 \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440\u0430\u043C\u0438 \u2014 \u0432 matches \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439 \u0422\u041E\u041B\u042C\u041A\u041E \u044D\u0442\u0438 plantId, \u043A\u043E\u043F\u0438\u0440\u0443\u044F \u0434\u043E\u0441\u043B\u043E\u0432\u043D\u043E:\n").concat(roster || "пусто", "\n\u041E\u043F\u0440\u0435\u0434\u0435\u043B\u0438, \u0447\u0442\u043E \u044D\u0442\u043E \u0437\u0430 \u0441\u0440\u0435\u0434\u0441\u0442\u0432\u043E/\u043F\u0440\u0435\u0434\u043C\u0435\u0442, \u0438 \u043F\u043E\u0434\u0431\u0435\u0440\u0438, \u043A\u0430\u043A\u0438\u043C \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u044F\u043C \u0441\u0430\u0434\u0430 \u043E\u043D\u043E \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u0438 \u043A\u0430\u043A \u0435\u0433\u043E \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0442\u044C.\n\u0414\u043E\u0437\u0438\u0440\u043E\u0432\u043A\u0443 \u043D\u0435 \u043D\u0430\u0437\u044B\u0432\u0430\u0439 \u2014 \u0442\u043E\u043B\u044C\u043A\u043E \u0447\u0430\u0441\u0442\u043E\u0442\u0443 \u0438 \u043E\u0431\u0449\u0438\u0439 \u043F\u0440\u0438\u043D\u0446\u0438\u043F, \u0434\u043E\u0437\u0430 \u0432\u0441\u0435\u0433\u0434\u0430 \u043F\u043E \u044D\u0442\u0438\u043A\u0435\u0442\u043A\u0435.\n\u041E\u0442\u0432\u0435\u0442\u044C \u0422\u041E\u041B\u042C\u041A\u041E \u0432\u0430\u043B\u0438\u0434\u043D\u044B\u043C JSON \u0431\u0435\u0437 markdown:\n{\n \"summary\": \"\u0447\u0442\u043E \u044D\u0442\u043E \u0438 \u0434\u043B\u044F \u0447\u0435\u0433\u043E, 1-2 \u0444\u0440\u0430\u0437\u044B\",\n \"matches\": [{\"plantId\": \"\u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0438\u0437 \u0441\u043F\u0438\u0441\u043A\u0430\", \"how\": \"\u043A\u0430\u043A \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0442\u044C \u0438\u043C\u0435\u043D\u043D\u043E \u0434\u043B\u044F \u043D\u0435\u0433\u043E: \u0447\u0430\u0441\u0442\u043E\u0442\u0430 \u0438 \u043F\u0440\u0438\u043D\u0446\u0438\u043F, \u041A\u041E\u0420\u041E\u0422\u041A\u041E, \u0434\u043E 12 \u0441\u043B\u043E\u0432\"}],\n \"caution\": \"\u043A\u043E\u043C\u0443 \u0438\u0437 \u0441\u0430\u0434\u0430 \u041D\u0415 \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u0438\u043B\u0438 \u0432\u0430\u0436\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u043E\u0441\u0442\u0435\u0440\u0435\u0436\u0435\u043D\u0438\u0435, 1 \u0444\u0440\u0430\u0437\u0430, \u043B\u0438\u0431\u043E null\",\n \"checked\": \"\u0433\u043E\u0442\u043E\u0432\u043E\"\n}\n\u0412\u0410\u0416\u041D\u041E: \u043F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0438 \u0432 matches \u0412\u0421\u0415 \u0431\u0435\u0437 \u0438\u0441\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u044F \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u044F \u0441\u0430\u0434\u0430, \u043A\u043E\u0442\u043E\u0440\u044B\u043C \u0441\u0440\u0435\u0434\u0441\u0442\u0432\u043E \u0443\u043C\u0435\u0441\u0442\u043D\u043E, \u0434\u0430\u0436\u0435 \u0435\u0441\u043B\u0438 \u0438\u0445 \u043C\u043D\u043E\u0433\u043E \u2014 \u043D\u0435 \u0441\u043E\u043A\u0440\u0430\u0449\u0430\u0439 \u0441\u043F\u0438\u0441\u043E\u043A. \u0415\u0441\u043B\u0438 \u043D\u0435 \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u043D\u0438\u043A\u043E\u043C\u0443 \u2014 matches \u043F\u0443\u0441\u0442\u043E\u0439, \u043E\u0431\u044A\u044F\u0441\u043D\u0438 \u0432 summary. \u041A\u043B\u044E\u0447 \"checked\" \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u0435\u043D \u0432\u0441\u0435\u0433\u0434\u0430 \u0438 \u0438\u0434\u0451\u0442 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u043C.");
+  const prompt = "\u0422\u044B \u2014 \u043F\u0440\u0430\u043A\u0442\u0438\u0447\u043D\u044B\u0439 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A. \u0412 \u0445\u043E\u0437\u044F\u0439\u0441\u0442\u0432\u0435 \u0435\u0441\u0442\u044C: \"".concat(item.name, "\"").concat(item.note ? " (".concat(item.note, ")") : "", ", \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u044F: ").concat(invCatT(item.category), ".\n\u041F\u0440\u043E \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u0443: ").concat(apartment, "\n\u0421\u0430\u0434 (\u0443\u0441\u043B\u043E\u0432\u0438\u044F \u0438 \u0443\u0445\u043E\u0434):\n").concat(plants.length > 0 ? buildGardenContext(plants, journal, profile, outbreaks) : "пока пуст", "\n\u0421\u043F\u0438\u0441\u043E\u043A \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0439 \u0441 \u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440\u0430\u043C\u0438 \u2014 \u0432 matches \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439 \u0422\u041E\u041B\u042C\u041A\u041E \u044D\u0442\u0438 plantId, \u043A\u043E\u043F\u0438\u0440\u0443\u044F \u0434\u043E\u0441\u043B\u043E\u0432\u043D\u043E:\n").concat(roster || "пусто", "\n\u041E\u043F\u0440\u0435\u0434\u0435\u043B\u0438, \u0447\u0442\u043E \u044D\u0442\u043E \u0437\u0430 \u0441\u0440\u0435\u0434\u0441\u0442\u0432\u043E/\u043F\u0440\u0435\u0434\u043C\u0435\u0442, \u0438 \u043F\u043E\u0434\u0431\u0435\u0440\u0438, \u043A\u0430\u043A\u0438\u043C \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u044F\u043C \u0441\u0430\u0434\u0430 \u043E\u043D\u043E \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u0438 \u043A\u0430\u043A \u0435\u0433\u043E \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0442\u044C.\n\u0414\u043E\u0437\u0438\u0440\u043E\u0432\u043A\u0443 \u043D\u0435 \u043D\u0430\u0437\u044B\u0432\u0430\u0439 \u2014 \u0442\u043E\u043B\u044C\u043A\u043E \u0447\u0430\u0441\u0442\u043E\u0442\u0443 \u0438 \u043E\u0431\u0449\u0438\u0439 \u043F\u0440\u0438\u043D\u0446\u0438\u043F, \u0434\u043E\u0437\u0430 \u0432\u0441\u0435\u0433\u0434\u0430 \u043F\u043E \u044D\u0442\u0438\u043A\u0435\u0442\u043A\u0435.\n\u041E\u0442\u0432\u0435\u0442\u044C \u0422\u041E\u041B\u042C\u041A\u041E \u0432\u0430\u043B\u0438\u0434\u043D\u044B\u043C JSON \u0431\u0435\u0437 markdown:\n{\n \"summary\": \"\u0447\u0442\u043E \u044D\u0442\u043E \u0438 \u0434\u043B\u044F \u0447\u0435\u0433\u043E, 1-2 \u0444\u0440\u0430\u0437\u044B\",\n \"matches\": [{\"plantId\": \"\u0438\u0434\u0435\u043D\u0442\u0438\u0444\u0438\u043A\u0430\u0442\u043E\u0440 \u0438\u0437 \u0441\u043F\u0438\u0441\u043A\u0430\", \"how\": \"\u043A\u0430\u043A \u043F\u0440\u0438\u043C\u0435\u043D\u044F\u0442\u044C \u0438\u043C\u0435\u043D\u043D\u043E \u0434\u043B\u044F \u043D\u0435\u0433\u043E: \u0447\u0430\u0441\u0442\u043E\u0442\u0430 \u0438 \u043F\u0440\u0438\u043D\u0446\u0438\u043F, \u041A\u041E\u0420\u041E\u0422\u041A\u041E, \u0434\u043E 12 \u0441\u043B\u043E\u0432\"}],\n \"caution\": \"\u043A\u043E\u043C\u0443 \u0438\u0437 \u0441\u0430\u0434\u0430 \u041D\u0415 \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u0438\u043B\u0438 \u0432\u0430\u0436\u043D\u043E\u0435 \u043F\u0440\u0435\u0434\u043E\u0441\u0442\u0435\u0440\u0435\u0436\u0435\u043D\u0438\u0435, 1 \u0444\u0440\u0430\u0437\u0430, \u043B\u0438\u0431\u043E null\",\n \"checked\": \"\u0433\u043E\u0442\u043E\u0432\u043E\"\n}\n\u0412\u0410\u0416\u041D\u041E: \u043F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0438 \u0432 matches \u0412\u0421\u0415 \u0431\u0435\u0437 \u0438\u0441\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u044F \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u044F \u0441\u0430\u0434\u0430, \u043A\u043E\u0442\u043E\u0440\u044B\u043C \u0441\u0440\u0435\u0434\u0441\u0442\u0432\u043E \u0443\u043C\u0435\u0441\u0442\u043D\u043E, \u0434\u0430\u0436\u0435 \u0435\u0441\u043B\u0438 \u0438\u0445 \u043C\u043D\u043E\u0433\u043E \u2014 \u043D\u0435 \u0441\u043E\u043A\u0440\u0430\u0449\u0430\u0439 \u0441\u043F\u0438\u0441\u043E\u043A. \u0415\u0441\u043B\u0438 \u043D\u0435 \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442 \u043D\u0438\u043A\u043E\u043C\u0443 \u2014 matches \u043F\u0443\u0441\u0442\u043E\u0439, \u043E\u0431\u044A\u044F\u0441\u043D\u0438 \u0432 summary. \u041A\u043B\u044E\u0447 \"checked\" \u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u0435\u043D \u0432\u0441\u0435\u0433\u0434\u0430 \u0438 \u0438\u0434\u0451\u0442 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u043C.");
   const text = await askClaude([{
     role: "user",
     content: prompt
@@ -1556,7 +1653,7 @@ async function suggestPlacement(name, plants, spotChoices, apartment, isNew) {
   return parseJson(text);
 }
 async function wishlistVerdict(name, plants, journal, apartment, profile) {
-  const context = plants.length > 0 ? buildGardenContext(plants, journal, profile) : "сад пока пуст";
+  const context = plants.length > 0 ? buildGardenContext(plants, journal, profile, outbreaks) : "сад пока пуст";
   const gone = plants.gone || [];
   const prompt = "\u0422\u044B \u2014 \u0447\u0435\u0441\u0442\u043D\u044B\u0439, \u043D\u043E \u0434\u043E\u0431\u0440\u043E\u0436\u0435\u043B\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0439 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A. \u0427\u0435\u043B\u043E\u0432\u0435\u043A \u043C\u0435\u0447\u0442\u0430\u0435\u0442 \u0437\u0430\u0432\u0435\u0441\u0442\u0438 \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0435: \"".concat(name, "\".\n\u041F\u0440\u043E \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u0443: ").concat(apartment, "\n\u0412\u043E\u0442 \u0435\u0433\u043E \u0442\u0435\u043A\u0443\u0449\u0438\u0439 \u0441\u0430\u0434:\n").concat(context, "\n\u041E\u0446\u0435\u043D\u0438, \u043F\u0440\u0438\u0436\u0438\u0432\u0451\u0442\u0441\u044F \u043B\u0438 \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0435 \u043C\u0435\u0447\u0442\u044B \u0432 \u044D\u0442\u0438\u0445 \u0443\u0441\u043B\u043E\u0432\u0438\u044F\u0445, \u0438 \u043D\u0430 \u0447\u0442\u043E \u043E\u0431\u0440\u0430\u0442\u0438\u0442\u044C \u0432\u043D\u0438\u043C\u0430\u043D\u0438\u0435.\n\u041E\u0442\u0432\u0435\u0442\u044C \u0422\u041E\u041B\u042C\u041A\u041E \u0432\u0430\u043B\u0438\u0434\u043D\u044B\u043C JSON \u0431\u0435\u0437 markdown:\n{\"fit\": \"good\" | \"maybe\" | \"hard\", \"verdict\": \"\u043E\u0446\u0435\u043D\u043A\u0430 \u0438 \u0433\u043B\u0430\u0432\u043D\u044B\u0439 \u0441\u043E\u0432\u0435\u0442, 2-3 \u0444\u0440\u0430\u0437\u044B\", \"toxic\": \"\u043F\u0440\u0435\u0434\u0443\u043F\u0440\u0435\u0436\u0434\u0435\u043D\u0438\u0435, \u0435\u0441\u043B\u0438 \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0435 \u043E\u043F\u0430\u0441\u043D\u043E \u0434\u043B\u044F \u043A\u043E\u0448\u0435\u043A, \u0441\u043E\u0431\u0430\u043A \u0438\u043B\u0438 \u0434\u0435\u0442\u0435\u0439, \u0438\u043D\u0430\u0447\u0435 null\"}");
   const text = await askClaude([{
@@ -1569,7 +1666,7 @@ async function plantAsk(history, plant, entries, apartment, invText, profile) {
   const care = plant.care || {};
   const iv = waterInterval(plant, profile);
   const recent = (entries || []).slice(0, 8).map(e => "".concat(fmtDate(e.date), ": ").concat(e.text)).join("; ");
-  const context = "\u0422\u044B \u2014 \u0442\u0451\u043F\u043B\u044B\u0439, \u0432\u043D\u0438\u043C\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0439 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A-\u043A\u043E\u043D\u0441\u0443\u043B\u044C\u0442\u0430\u043D\u0442. \u041E\u0442\u0432\u0435\u0447\u0430\u0439 \u043F\u043E-\u0440\u0443\u0441\u0441\u043A\u0438, \u0434\u0440\u0443\u0436\u0435\u043B\u044E\u0431\u043D\u043E \u0438 \u043F\u043E \u0434\u0435\u043B\u0443, \u0431\u0435\u0437 \u043B\u0438\u0448\u043D\u0435\u0439 \u0432\u043E\u0434\u044B. \u0421\u0435\u0433\u043E\u0434\u043D\u044F ".concat(new Date().toLocaleDateString("ru-RU"), ", \u0441\u0435\u0439\u0447\u0430\u0441 ").concat(seasonLabel(profile), ". \u041F\u0440\u043E \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u0443: ").concat(apartment, "\n").concat(invText ? invText + "\n" : "", "\u0420\u0430\u0437\u0433\u043E\u0432\u043E\u0440 \u0438\u0434\u0451\u0442 \u043E\u0431 \u043E\u0434\u043D\u043E\u043C \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u043E\u043C \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0438:\n").concat(plant.name).concat(plant.nickname ? " (\xAB".concat(plant.nickname, "\xBB)") : "", " (").concat(care.latinName || "вид уточняется", "), \u0441\u0442\u043E\u0438\u0442 ").concat(plant.location === "balcony" ? "на балконе" : "дома").concat(plant.spot ? ", ".concat(plant.spot) : "", ".").concat(plant.ownedSince ? " \u0423 \u0445\u043E\u0437\u044F\u0435\u0432 \u0441 ".concat(fmtMonth(plant.ownedSince), ".") : "", "\n\u0413\u043E\u0440\u0448\u043E\u043A: ").concat(plant.potCm ? plant.potCm + " см, " + (potMaterialT(plant.potMaterial) || "?") : "не указан").concat(plant.substrate ? ", субстрат: " + substrateT(plant.substrate) : "", ". \u041F\u0435\u0440\u0435\u0441\u0430\u0434\u043A\u0430: ").concat(plant.lastRepot ? fmtMonth(plant.lastRepot) : "не отмечалась", ".\n\u041F\u0430\u0441\u043F\u043E\u0440\u0442: \u0441\u0432\u0435\u0442 \u2014 ").concat(care.light || "?", "; \u043F\u043E\u043B\u0438\u0432 \u2014 \u0441\u0435\u0439\u0447\u0430\u0441 \u0440\u0430\u0437 \u0432 ").concat(iv || "?", " \u0434\u043D. (\u043B\u0435\u0442\u043E\u043C ").concat(care.wateringSummer || "?", ", \u0437\u0438\u043C\u043E\u0439 ").concat(care.wateringWinter || "?", "); \u043A\u0440\u0438\u0442\u0435\u0440\u0438\u0439 \u2014 ").concat(care.dryDownTarget || "?", "; \u0432\u043B\u0430\u0436\u043D\u043E\u0441\u0442\u044C \u2014 ").concat(care.humidity || "?", "; \u043F\u043E\u0434\u043A\u043E\u0440\u043C\u043A\u0430 \u2014 ").concat(care.feeding || "?", "; \u0433\u0440\u0443\u043D\u0442 \u2014 ").concat(care.soil || "?", "; \u0441\u043B\u043E\u0436\u043D\u043E\u0441\u0442\u044C \u2014 ").concat(care.difficulty || "?", ".\n\u041F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0439 \u043F\u043E\u043B\u0438\u0432: ").concat(plant.lastWatered ? daysSince(plant.lastWatered) + " дн. назад" : "не отмечался", ".\n").concat(plant.treatment && plant.treatment.active ? "Сейчас идёт курс лечения: " + plant.treatment.issue + ". Подкормки на это время отменены.\n" : "").concat(recent ? "Из дневника: " + recent : "Дневник пока пуст.", "\n\u041E\u0442\u0432\u0435\u0447\u0430\u0439 \u0438\u043C\u0435\u043D\u043D\u043E \u043F\u0440\u043E \u044D\u0442\u043E \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0435, \u0441 \u0443\u0447\u0451\u0442\u043E\u043C \u0435\u0433\u043E \u0438\u0441\u0442\u043E\u0440\u0438\u0438, \u043C\u0435\u0441\u0442\u0430 \u0438 \u0443\u0441\u043B\u043E\u0432\u0438\u0439 \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u044B. \u0414\u043E\u0437\u0438\u0440\u043E\u0432\u043A\u0438 \u043F\u0440\u0435\u043F\u0430\u0440\u0430\u0442\u043E\u0432 \u043D\u0435 \u043D\u0430\u0437\u044B\u0432\u0430\u0439 \u2014 \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u0435\u0439\u0441\u0442\u0432\u0443\u044E\u0449\u0435\u0435 \u0432\u0435\u0449\u0435\u0441\u0442\u0432\u043E, \u0434\u043E\u0437\u0430 \u043F\u043E \u044D\u0442\u0438\u043A\u0435\u0442\u043A\u0435.");
+  const context = "\u0422\u044B \u2014 \u0442\u0451\u043F\u043B\u044B\u0439, \u0432\u043D\u0438\u043C\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0439 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A-\u043A\u043E\u043D\u0441\u0443\u043B\u044C\u0442\u0430\u043D\u0442. \u041E\u0442\u0432\u0435\u0447\u0430\u0439 \u043F\u043E-\u0440\u0443\u0441\u0441\u043A\u0438, \u0434\u0440\u0443\u0436\u0435\u043B\u044E\u0431\u043D\u043E \u0438 \u043F\u043E \u0434\u0435\u043B\u0443, \u0431\u0435\u0437 \u043B\u0438\u0448\u043D\u0435\u0439 \u0432\u043E\u0434\u044B. \u0421\u0435\u0433\u043E\u0434\u043D\u044F ".concat(new Date().toLocaleDateString("ru-RU"), ", \u0441\u0435\u0439\u0447\u0430\u0441 ").concat(seasonLabel(profile), ". \u041F\u0440\u043E \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u0443: ").concat(apartment, "\n").concat(invText ? invText + "\n" : "", "\u0420\u0430\u0437\u0433\u043E\u0432\u043E\u0440 \u0438\u0434\u0451\u0442 \u043E\u0431 \u043E\u0434\u043D\u043E\u043C \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u043E\u043C \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0438:\n").concat(plant.name).concat(plant.nickname ? " (\xAB".concat(plant.nickname, "\xBB)") : "", " (").concat(care.latinName || "вид уточняется", "), \u0441\u0442\u043E\u0438\u0442 ").concat(plant.location === "balcony" ? "на балконе" : "дома").concat(plant.spot ? ", ".concat(plant.spot) : "", ".").concat(plant.ownedSince ? " \u0423 \u0445\u043E\u0437\u044F\u0435\u0432 \u0441 ".concat(fmtMonth(plant.ownedSince), ".") : "", "\n\u0413\u043E\u0440\u0448\u043E\u043A: ").concat(plant.potCm ? plant.potCm + " см, " + (potMaterialT(plant.potMaterial) || "?") : "не указан").concat(plant.substrate ? ", субстрат: " + substrateT(plant.substrate) : "", ". \u041F\u0435\u0440\u0435\u0441\u0430\u0434\u043A\u0430: ").concat(plant.lastRepot ? fmtMonth(plant.lastRepot) : "не отмечалась", ".\n\u041F\u0430\u0441\u043F\u043E\u0440\u0442: \u0441\u0432\u0435\u0442 \u2014 ").concat(care.light || "?", "; \u043F\u043E\u043B\u0438\u0432 \u2014 \u0441\u0435\u0439\u0447\u0430\u0441 \u0440\u0430\u0437 \u0432 ").concat(iv || "?", " \u0434\u043D. (\u043B\u0435\u0442\u043E\u043C ").concat(care.wateringSummer || "?", ", \u0437\u0438\u043C\u043E\u0439 ").concat(care.wateringWinter || "?", "); \u043A\u0440\u0438\u0442\u0435\u0440\u0438\u0439 \u2014 ").concat(care.dryDownTarget || "?", "; \u0432\u043B\u0430\u0436\u043D\u043E\u0441\u0442\u044C \u2014 ").concat(care.humidity || "?", "; \u043F\u043E\u0434\u043A\u043E\u0440\u043C\u043A\u0430 \u2014 ").concat(care.feeding || "?", "; \u0433\u0440\u0443\u043D\u0442 \u2014 ").concat(care.soil || "?", "; \u0441\u043B\u043E\u0436\u043D\u043E\u0441\u0442\u044C \u2014 ").concat(care.difficulty || "?", ".\n\u041F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0439 \u043F\u043E\u043B\u0438\u0432: ").concat(plant.lastWatered ? daysSince(plant.lastWatered) + " дн. назад" : "не отмечался", ".\n").concat(plant.sickNote ? "Сейчас идёт курс лечения: " + plant.sickNote + ". Подкормки на это время отменены.\n" : "").concat(recent ? "Из дневника: " + recent : "Дневник пока пуст.", "\n\u041E\u0442\u0432\u0435\u0447\u0430\u0439 \u0438\u043C\u0435\u043D\u043D\u043E \u043F\u0440\u043E \u044D\u0442\u043E \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0435, \u0441 \u0443\u0447\u0451\u0442\u043E\u043C \u0435\u0433\u043E \u0438\u0441\u0442\u043E\u0440\u0438\u0438, \u043C\u0435\u0441\u0442\u0430 \u0438 \u0443\u0441\u043B\u043E\u0432\u0438\u0439 \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u044B. \u0414\u043E\u0437\u0438\u0440\u043E\u0432\u043A\u0438 \u043F\u0440\u0435\u043F\u0430\u0440\u0430\u0442\u043E\u0432 \u043D\u0435 \u043D\u0430\u0437\u044B\u0432\u0430\u0439 \u2014 \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u0435\u0439\u0441\u0442\u0432\u0443\u044E\u0449\u0435\u0435 \u0432\u0435\u0449\u0435\u0441\u0442\u0432\u043E, \u0434\u043E\u0437\u0430 \u043F\u043E \u044D\u0442\u0438\u043A\u0435\u0442\u043A\u0435.");
   const apiMessages = [{
     role: "user",
     content: context
@@ -1584,7 +1681,7 @@ async function needsOrder(needs, plants, journal, apartment, invText, profile) {
     const p = n.plantId ? plants.find(x => x.id === n.plantId) : null;
     return "\u2022 ".concat(n.text).concat(p ? " (\u0434\u043B\u044F: ".concat(p.nickname || p.name, ")") : " (для сада в целом)");
   }).join("\n");
-  const prompt = "\u0422\u044B \u2014 \u043F\u0440\u0430\u043A\u0442\u0438\u0447\u043D\u044B\u0439 \u0438 \u0437\u0430\u0431\u043E\u0442\u043B\u0438\u0432\u044B\u0439 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A. \u0427\u0435\u043B\u043E\u0432\u0435\u043A \u0441\u043E\u0431\u0438\u0440\u0430\u0435\u0442\u0441\u044F \u0441\u0434\u0435\u043B\u0430\u0442\u044C \u0437\u0430\u043A\u0430\u0437 \u0434\u043B\u044F \u0434\u043E\u043C\u0430\u0448\u043D\u0435\u0433\u043E \u0441\u0430\u0434\u0430.\n\u041F\u0440\u043E \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u0443: ".concat(apartment, "\n\u0421\u0430\u0434:\n").concat(buildGardenContext(plants, journal, profile), "\n").concat(invText ? invText + " Не включай это в заказ повторно, но учитывай при объёмах.\n" : "", "\u0421\u043F\u0438\u0441\u043E\u043A \xAB\u043A\u0443\u043F\u0438\u0442\u044C\xBB:\n").concat(items, "\n\u041F\u043E\u043C\u043E\u0433\u0438 \u0441\u043E\u0431\u0440\u0430\u0442\u044C \u0437\u0430\u043A\u0430\u0437: \u0441\u0433\u0440\u0443\u043F\u043F\u0438\u0440\u0443\u0439 \u043F\u043E\u0437\u0438\u0446\u0438\u0438 (\u0433\u0440\u0443\u043D\u0442\u044B, \u0443\u0434\u043E\u0431\u0440\u0435\u043D\u0438\u044F, \u0438\u043D\u0432\u0435\u043D\u0442\u0430\u0440\u044C), \u0433\u0434\u0435 \u0443\u043C\u0435\u0441\u0442\u043D\u043E \u2014 \u043E\u0431\u044A\u0435\u0434\u0438\u043D\u0438 \u0441\u043E\u0432\u043C\u0435\u0441\u0442\u0438\u043C\u044B\u0435, \u043F\u0440\u0438\u043A\u0438\u043D\u044C \u0440\u0430\u0437\u0443\u043C\u043D\u044B\u0435 \u043E\u0431\u044A\u0451\u043C\u044B \u0441 \u043D\u0435\u0431\u043E\u043B\u044C\u0448\u0438\u043C \u0437\u0430\u043F\u0430\u0441\u043E\u043C. \u0415\u0441\u043B\u0438 \u043F\u0435\u0440\u0435\u0434 \u043F\u0435\u0440\u0435\u0441\u0430\u0434\u043A\u0430\u043C\u0438 \u043E\u0447\u0435\u0432\u0438\u0434\u043D\u043E \u043D\u0435 \u0445\u0432\u0430\u0442\u0430\u0435\u0442 \u0432\u0430\u0436\u043D\u043E\u0433\u043E (\u0434\u0440\u0435\u043D\u0430\u0436, \u043A\u0430\u0448\u043F\u043E \u043D\u0430 \u0440\u0430\u0437\u043C\u0435\u0440 \u0431\u043E\u043B\u044C\u0448\u0435) \u2014 \u0434\u0435\u043B\u0438\u043A\u0430\u0442\u043D\u043E \u0434\u043E\u0431\u0430\u0432\u044C \u0432 \u043A\u043E\u043D\u0446\u0435 \xAB\u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E, \u043F\u0440\u0438\u0433\u043E\u0434\u0438\u0442\u0441\u044F\xBB. \u041E\u0442\u0432\u0435\u0442\u044C \u043A\u043E\u0440\u043E\u0442\u043A\u0438\u043C \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u043C \u0442\u0435\u043A\u0441\u0442\u043E\u043C \u043F\u043E-\u0440\u0443\u0441\u0441\u043A\u0438, \u0431\u0435\u0437 markdown-\u0437\u0430\u0433\u043E\u043B\u043E\u0432\u043A\u043E\u0432, \u043C\u043E\u0436\u043D\u043E \u0441 \u044D\u043C\u043E\u0434\u0437\u0438 \u0438 \u0441\u043F\u0438\u0441\u043A\u043E\u043C \u0447\u0435\u0440\u0435\u0437 \u2022.");
+  const prompt = "\u0422\u044B \u2014 \u043F\u0440\u0430\u043A\u0442\u0438\u0447\u043D\u044B\u0439 \u0438 \u0437\u0430\u0431\u043E\u0442\u043B\u0438\u0432\u044B\u0439 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A. \u0427\u0435\u043B\u043E\u0432\u0435\u043A \u0441\u043E\u0431\u0438\u0440\u0430\u0435\u0442\u0441\u044F \u0441\u0434\u0435\u043B\u0430\u0442\u044C \u0437\u0430\u043A\u0430\u0437 \u0434\u043B\u044F \u0434\u043E\u043C\u0430\u0448\u043D\u0435\u0433\u043E \u0441\u0430\u0434\u0430.\n\u041F\u0440\u043E \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u0443: ".concat(apartment, "\n\u0421\u0430\u0434:\n").concat(buildGardenContext(plants, journal, profile, outbreaks), "\n").concat(invText ? invText + " Не включай это в заказ повторно, но учитывай при объёмах.\n" : "", "\u0421\u043F\u0438\u0441\u043E\u043A \xAB\u043A\u0443\u043F\u0438\u0442\u044C\xBB:\n").concat(items, "\n\u041F\u043E\u043C\u043E\u0433\u0438 \u0441\u043E\u0431\u0440\u0430\u0442\u044C \u0437\u0430\u043A\u0430\u0437: \u0441\u0433\u0440\u0443\u043F\u043F\u0438\u0440\u0443\u0439 \u043F\u043E\u0437\u0438\u0446\u0438\u0438 (\u0433\u0440\u0443\u043D\u0442\u044B, \u0443\u0434\u043E\u0431\u0440\u0435\u043D\u0438\u044F, \u0438\u043D\u0432\u0435\u043D\u0442\u0430\u0440\u044C), \u0433\u0434\u0435 \u0443\u043C\u0435\u0441\u0442\u043D\u043E \u2014 \u043E\u0431\u044A\u0435\u0434\u0438\u043D\u0438 \u0441\u043E\u0432\u043C\u0435\u0441\u0442\u0438\u043C\u044B\u0435, \u043F\u0440\u0438\u043A\u0438\u043D\u044C \u0440\u0430\u0437\u0443\u043C\u043D\u044B\u0435 \u043E\u0431\u044A\u0451\u043C\u044B \u0441 \u043D\u0435\u0431\u043E\u043B\u044C\u0448\u0438\u043C \u0437\u0430\u043F\u0430\u0441\u043E\u043C. \u0415\u0441\u043B\u0438 \u043F\u0435\u0440\u0435\u0434 \u043F\u0435\u0440\u0435\u0441\u0430\u0434\u043A\u0430\u043C\u0438 \u043E\u0447\u0435\u0432\u0438\u0434\u043D\u043E \u043D\u0435 \u0445\u0432\u0430\u0442\u0430\u0435\u0442 \u0432\u0430\u0436\u043D\u043E\u0433\u043E (\u0434\u0440\u0435\u043D\u0430\u0436, \u043A\u0430\u0448\u043F\u043E \u043D\u0430 \u0440\u0430\u0437\u043C\u0435\u0440 \u0431\u043E\u043B\u044C\u0448\u0435) \u2014 \u0434\u0435\u043B\u0438\u043A\u0430\u0442\u043D\u043E \u0434\u043E\u0431\u0430\u0432\u044C \u0432 \u043A\u043E\u043D\u0446\u0435 \xAB\u0432\u043E\u0437\u043C\u043E\u0436\u043D\u043E, \u043F\u0440\u0438\u0433\u043E\u0434\u0438\u0442\u0441\u044F\xBB. \u041E\u0442\u0432\u0435\u0442\u044C \u043A\u043E\u0440\u043E\u0442\u043A\u0438\u043C \u0441\u0442\u0440\u0443\u043A\u0442\u0443\u0440\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u043C \u0442\u0435\u043A\u0441\u0442\u043E\u043C \u043F\u043E-\u0440\u0443\u0441\u0441\u043A\u0438, \u0431\u0435\u0437 markdown-\u0437\u0430\u0433\u043E\u043B\u043E\u0432\u043A\u043E\u0432, \u043C\u043E\u0436\u043D\u043E \u0441 \u044D\u043C\u043E\u0434\u0437\u0438 \u0438 \u0441\u043F\u0438\u0441\u043A\u043E\u043C \u0447\u0435\u0440\u0435\u0437 \u2022.");
   return askClaude([{
     role: "user",
     content: prompt
@@ -2537,6 +2634,45 @@ function migrate(d) {
     ...x,
     updatedAt: x.updatedAt || stamp
   }));
+
+  /* Курсы лечения переезжают из растений во вспышки. Идентификатор выводится
+     из растения, поэтому повторный запуск миграции ничего не задваивает,
+     а удалённую вспышку не воскрешает — её держит tombstone.
+     Само поле plant.treatment остаётся ещё сборку: на другом устройстве
+     может стоять предыдущая версия. */
+  const outbreaks = withStamp(d.outbreaks);
+  const tombs = d.tombstones || {};
+  plants.forEach(p => {
+    const t = p.treatment;
+    if (!t || !t.startedAt) return;
+    const id = "mg-" + p.id;
+    if (tombs[id] || outbreaks.some(o => o.id === id)) return;
+    outbreaks.push({
+      id,
+      pest: t.pest || "other",
+      issue: t.issue || pest(t.pest).t,
+      startedAt: t.startedAt,
+      endedAt: t.endedAt || null,
+      status: t.active ? "active" : "done",
+      zone: zoneOf(p),
+      members: [{
+        plantId: p.id,
+        role: "infected",
+        foundAt: t.startedAt,
+        clearedAt: t.active ? null : t.endedAt || null
+      }],
+      roundsPlanned: t.roundsPlanned || pest(t.pest).rounds,
+      gap: t.gap || pest(t.pest).gap,
+      rounds: (t.rounds || []).map(r => ({
+        ...r,
+        plantIds: r.plantIds || [p.id]
+      })),
+      plan: t.plan || [],
+      checkDate: t.checkDate || null,
+      migratedFrom: p.id,
+      updatedAt: stamp
+    });
+  });
   const profile = d.profile ? {
     theme: "auto",
     water: "",
@@ -2551,6 +2687,7 @@ function migrate(d) {
     wishlist: withStamp(d.wishlist),
     needs: withStamp(d.needs),
     inventory: withStamp(d.inventory),
+    outbreaks,
     profile,
     tombstones: d.tombstones || {},
     chat: trimChat(d.chat),
@@ -2621,6 +2758,7 @@ function mergeGardens(local, remote) {
     wishlist: mergeLists(a.wishlist, b.wishlist, tomb),
     needs: mergeLists(a.needs, b.needs, tomb),
     inventory: inv,
+    outbreaks: mergeLists(a.outbreaks, b.outbreaks, tomb),
     profile,
     tombstones: tomb,
     chat,
@@ -2632,7 +2770,7 @@ function mergeGardens(local, remote) {
    Хеш-роутинг: системная кнопка «назад» больше не выкидывает из приложения,
    перезагрузка возвращает на тот же экран, а карточка растения помнит,
    откуда в неё пришли. */
-const ROUTES = ["garden", "today", "add", "chat", "wishlist", "stats", "supplies", "setup", "vacation", "plant", "archive"];
+const ROUTES = ["garden", "today", "add", "chat", "wishlist", "stats", "supplies", "setup", "vacation", "plant", "archive", "health"];
 function parseHash() {
   const h = (window.location.hash || "").replace(/^#\/?/, "");
   const parts = h.split("/").filter(Boolean);
@@ -2676,102 +2814,106 @@ function MyGarden() {
     setInventory = _useState12[1];
   const _useState13 = useState([]),
     _useState14 = _slicedToArray(_useState13, 2),
-    chat = _useState14[0],
-    setChat = _useState14[1];
-  const _useState15 = useState({}),
+    outbreaks = _useState14[0],
+    setOutbreaks = _useState14[1];
+  const _useState15 = useState([]),
     _useState16 = _slicedToArray(_useState15, 2),
-    tombstones = _useState16[0],
-    setTombstones = _useState16[1];
-  const _useState17 = useState(null),
+    chat = _useState16[0],
+    setChat = _useState16[1];
+  const _useState17 = useState({}),
     _useState18 = _slicedToArray(_useState17, 2),
-    profile = _useState18[0],
-    setProfile = _useState18[1];
-  const _useState19 = useState(""),
+    tombstones = _useState18[0],
+    setTombstones = _useState18[1];
+  const _useState19 = useState(null),
     _useState20 = _slicedToArray(_useState19, 2),
-    prefillName = _useState20[0],
-    setPrefillName = _useState20[1];
-  const _useState21 = useState(false),
+    profile = _useState20[0],
+    setProfile = _useState20[1];
+  const _useState21 = useState(""),
     _useState22 = _slicedToArray(_useState21, 2),
-    loaded = _useState22[0],
-    setLoaded = _useState22[1];
-  const _useState23 = useState(() => typeof window === "undefined" ? {
+    prefillName = _useState22[0],
+    setPrefillName = _useState22[1];
+  const _useState23 = useState(false),
+    _useState24 = _slicedToArray(_useState23, 2),
+    loaded = _useState24[0],
+    setLoaded = _useState24[1];
+  const _useState25 = useState(() => typeof window === "undefined" ? {
       view: "garden",
       id: null
     } : parseHash()),
-    _useState24 = _slicedToArray(_useState23, 2),
-    route = _useState24[0],
-    setRoute = _useState24[1];
+    _useState26 = _slicedToArray(_useState25, 2),
+    route = _useState26[0],
+    setRoute = _useState26[1];
   const view = route.view;
   const openId = route.id;
-  const _useState25 = useState("all"),
-    _useState26 = _slicedToArray(_useState25, 2),
-    filter = _useState26[0],
-    setFilter = _useState26[1];
-  const _useState27 = useState("place"),
+  const _useState27 = useState("all"),
     _useState28 = _slicedToArray(_useState27, 2),
-    sortBy = _useState28[0],
-    setSortBy = _useState28[1];
-  const _useState29 = useState(false),
+    filter = _useState28[0],
+    setFilter = _useState28[1];
+  const _useState29 = useState("place"),
     _useState30 = _slicedToArray(_useState29, 2),
-    compact = _useState30[0],
-    setCompact = _useState30[1];
-  const _useState31 = useState(""),
+    sortBy = _useState30[0],
+    setSortBy = _useState30[1];
+  const _useState31 = useState(false),
     _useState32 = _slicedToArray(_useState31, 2),
-    search = _useState32[0],
-    setSearch = _useState32[1];
-  const _useState33 = useState(null),
+    compact = _useState32[0],
+    setCompact = _useState32[1];
+  const _useState33 = useState(""),
     _useState34 = _slicedToArray(_useState33, 2),
-    toast = _useState34[0],
-    setToast = _useState34[1];
+    search = _useState34[0],
+    setSearch = _useState34[1];
   const _useState35 = useState(null),
     _useState36 = _slicedToArray(_useState35, 2),
-    ask = _useState36[0],
-    setAsk = _useState36[1];
-  const _useState37 = useState(0),
+    toast = _useState36[0],
+    setToast = _useState36[1];
+  const _useState37 = useState(null),
     _useState38 = _slicedToArray(_useState37, 2),
-    themeTick = _useState38[0],
-    setThemeTick = _useState38[1];
-  const _useState39 = useState(() => typeof window === "undefined" ? "" : today()),
+    ask = _useState38[0],
+    setAsk = _useState38[1];
+  const _useState39 = useState(0),
     _useState40 = _slicedToArray(_useState39, 2),
-    dayTick = _useState40[0],
-    setDayTick = _useState40[1];
-  const _useState41 = useState(""),
+    themeTick = _useState40[0],
+    setThemeTick = _useState40[1];
+  const _useState41 = useState(() => typeof window === "undefined" ? "" : today()),
     _useState42 = _slicedToArray(_useState41, 2),
-    mood = _useState42[0],
-    setMood = _useState42[1];
-  const _useState43 = useState(null),
+    dayTick = _useState42[0],
+    setDayTick = _useState42[1];
+  const _useState43 = useState(""),
     _useState44 = _slicedToArray(_useState43, 2),
-    fact = _useState44[0],
-    setFact = _useState44[1];
+    mood = _useState44[0],
+    setMood = _useState44[1];
   const _useState45 = useState(null),
     _useState46 = _slicedToArray(_useState45, 2),
-    weather = _useState46[0],
-    setWeather = _useState46[1];
-  const _useState47 = useState(false),
+    fact = _useState46[0],
+    setFact = _useState46[1];
+  const _useState47 = useState(null),
     _useState48 = _slicedToArray(_useState47, 2),
-    moreOpen = _useState48[0],
-    setMoreOpen = _useState48[1];
-  const _useState49 = useState(null),
+    weather = _useState48[0],
+    setWeather = _useState48[1];
+  const _useState49 = useState(false),
     _useState50 = _slicedToArray(_useState49, 2),
-    wallpaper = _useState50[0],
-    setWallpaper = _useState50[1];
-  const _useState51 = useState({
+    moreOpen = _useState50[0],
+    setMoreOpen = _useState50[1];
+  const _useState51 = useState(null),
+    _useState52 = _slicedToArray(_useState51, 2),
+    wallpaper = _useState52[0],
+    setWallpaper = _useState52[1];
+  const _useState53 = useState({
       code: null,
       at: null
     }),
-    _useState52 = _slicedToArray(_useState51, 2),
-    sync = _useState52[0],
-    setSync = _useState52[1];
+    _useState54 = _slicedToArray(_useState53, 2),
+    sync = _useState54[0],
+    setSync = _useState54[1];
   /* Раньше провал записи и провал отправки в облако не сообщались никак:
      приложение выглядело исправным и месяцами ничего не сохраняло. */
-  const _useState53 = useState({
+  const _useState55 = useState({
       localFail: false,
       cloudFail: false
     }),
-    _useState54 = _slicedToArray(_useState53, 2),
-    health = _useState54[0],
-    setHealth = _useState54[1];
-  const _useState55 = useState(() => {
+    _useState56 = _slicedToArray(_useState55, 2),
+    health = _useState56[0],
+    setHealth = _useState56[1];
+  const _useState57 = useState(() => {
       try {
         const v = localStorage.getItem("garden:lastBackup");
         return v ? Number(v) : null;
@@ -2779,9 +2921,9 @@ function MyGarden() {
         return null;
       }
     }),
-    _useState56 = _slicedToArray(_useState55, 2),
-    lastBackup = _useState56[0],
-    setLastBackup = _useState56[1];
+    _useState58 = _slicedToArray(_useState57, 2),
+    lastBackup = _useState58[0],
+    setLastBackup = _useState58[1];
   const syncTimer = useRef(null);
   const retryTimer = useRef(null);
   const pendingPush = useRef(null);
@@ -2796,6 +2938,7 @@ function MyGarden() {
     wishlist: [],
     needs: [],
     inventory: [],
+    outbreaks: [],
     chat: [],
     tombstones: {},
     profile: null
@@ -2958,6 +3101,7 @@ function MyGarden() {
       wishlist: d.wishlist || [],
       needs: d.needs || [],
       inventory: d.inventory || [],
+      outbreaks: d.outbreaks || [],
       chat: d.chat || [],
       tombstones: d.tombstones || {},
       profile: d.profile || null
@@ -2967,6 +3111,7 @@ function MyGarden() {
     setWishlist(d.wishlist || []);
     setNeeds(d.needs || []);
     setInventory(d.inventory || []);
+    setOutbreaks(d.outbreaks || []);
     setChat(d.chat || []);
     setTombstones(d.tombstones || {});
     setProfile(d.profile || null);
@@ -3300,7 +3445,7 @@ function MyGarden() {
   /* Подкормка — самая опасная зона: ошибка с удобрением не откатывается.
      Возвращаем причину блокировки или null. */
   function feedBlock(p) {
-    if (p.treatment && p.treatment.active) return "идёт лечение — подкормки отменяются полностью";
+    if (treatmentOf(p, snapshot().outbreaks)) return "идёт лечение — подкормки отменяются полностью";
     if (quarantineLeft(p) > 0) return "карантин — новичка не кормят";
     const lock = careOf(p).feedLockoutAfterRepotDays || 42;
     if (p.lastRepot) {
@@ -3371,7 +3516,21 @@ function MyGarden() {
   })).filter(x => x.waterDue || x.feedDue || x.mistDue || x.wipeDue), [plants, profile, dayTick]);
   const quarantineList = useMemo(() => active.filter(p => quarantineLeft(p) > 0), [plants, dayTick]);
   const repotList = useMemo(() => active.filter(repotDue), [plants, dayTick]);
-  const treatmentList = useMemo(() => active.filter(p => p.treatment && p.treatment.active && p.treatment.checkDate && p.treatment.checkDate <= today()), [plants, dayTick]);
+  const treatmentList = useMemo(() => activeOutbreaks(outbreaks).filter(o => o.checkDate && o.checkDate <= today()).map(o => ({
+    o,
+    plants: (o.members || []).filter(m => m.role === "infected").map(m => active.find(x => x.id === m.plantId)).filter(Boolean)
+  })).filter(x => x.plants.length > 0), [plants, outbreaks, dayTick]);
+
+  /* Кто сейчас лечится — для значков в каталоге и фильтра «Лечатся» */
+  const sickIds = useMemo(() => {
+    const m = {};
+    activeOutbreaks(outbreaks).forEach(o => {
+      (o.members || []).forEach(x => {
+        if (x.role === "infected") m[x.plantId] = o.issue;
+      });
+    });
+    return m;
+  }, [outbreaks]);
   const anniversaries = useMemo(() => {
     const m = new Date().getMonth() + 1;
     return active.filter(p => {
@@ -4097,7 +4256,7 @@ function MyGarden() {
       if (filter === "thirsty" && !dueInfo(p).waterDue) return false;
       if (filter === "nopass" && p.care) return false;
       if (filter === "fussy" && !/каприз/i.test(p.care && p.care.difficulty || "")) return false;
-      if (filter === "sick" && !(p.treatment && p.treatment.active)) return false;
+      if (filter === "sick" && !sickIds[p.id]) return false;
       const q = search.trim().toLowerCase();
       if (!q) return true;
       return [p.name, p.nickname, p.care && p.care.latinName, p.spot].filter(Boolean).some(s => s.toLowerCase().indexOf(q) >= 0);
@@ -4275,6 +4434,7 @@ function MyGarden() {
     showToast: showToast
   }) : /*#__PURE__*/React.createElement(React.Fragment, null, view === "garden" && /*#__PURE__*/React.createElement(GardenView, {
     shown: shown,
+    sickIds: sickIds,
     total: active.length,
     allPlants: active,
     filter: filter,
@@ -4420,6 +4580,11 @@ function MyGarden() {
     onRemoveInv: removeInvItem,
     onOpenPlant: id => go("plant", id),
     showToast: showToast
+  }), view === "health" && /*#__PURE__*/React.createElement(HealthView, {
+    outbreaks: outbreaks,
+    plants: plants,
+    onOpen: id => go("plant", id),
+    onBack: () => go("today")
   }), view === "vacation" && /*#__PURE__*/React.createElement(VacationView, {
     plants: active,
     profile: profile,
@@ -4456,6 +4621,7 @@ function MyGarden() {
     icon: "leaf"
   }, "\u0412 \u0441\u0430\u0434")), view === "plant" && openPlant && /*#__PURE__*/React.createElement(PlantView, {
     plant: openPlant,
+    outbreaks: outbreaks,
     profile: profile,
     apartment: apartment,
     invText: invText,
@@ -4514,93 +4680,120 @@ function MyGarden() {
          имеет значение только для балконных. */
       const warm = openPlant.location === "balcony" ? !weather || spotTemp(weather, plantBalconyKind(openPlant, profile)).tmax > 18 : true;
       const gap = pestGap(pestKind, warm);
-      const treatment = {
-        active: true,
-        startedAt: now(),
-        issue,
-        pest: pestKind || "other",
-        plan: plan || [],
-        roundsPlanned: pk.rounds,
-        rounds: [],
-        gap,
-        checkDate: isoDate(new Date(Date.now() + gap * 86400000)),
-        history: []
-      };
-      patchPlant(openPlant.id, {
-        treatment
-      }, "🩹 Начат курс лечения: " + issue);
-      showToast("\u041A\u0443\u0440\u0441 \u043D\u0430\u0447\u0430\u0442: ".concat(pk.rounds, " ").concat(plural(pk.rounds, "обработка", "обработки", "обработок"), " \u0441 \u0438\u043D\u0442\u0435\u0440\u0432\u0430\u043B\u043E\u043C ").concat(gap, " \u0434\u043D."));
+      const S = snapshot();
+      const ob = makeOutbreak(openPlant, S.plants, pestKind, issue, plan, gap);
+      const watch = ob.members.filter(m => m.role === "watch");
+      const nj = journalWith(S.journal, openPlant.id, "diagnosis", "\uD83E\uDE79 \u041D\u0430\u0447\u0430\u0442 \u043A\u0443\u0440\u0441: ".concat(issue).concat(watch.length ? " \xB7 \u043F\u043E\u0434 \u043D\u0430\u0431\u043B\u044E\u0434\u0435\u043D\u0438\u0435\u043C \u043D\u0430 \xAB".concat(ob.zone, "\xBB \u0435\u0449\u0451 ").concat(watch.length) : ""));
+      commit({
+        outbreaks: [...(S.outbreaks || []), ob],
+        journal: nj
+      });
+      showToast(watch.length ? "\u041A\u0443\u0440\u0441 \u043D\u0430\u0447\u0430\u0442. \u0420\u044F\u0434\u043E\u043C \u043D\u0430 \xAB".concat(ob.zone, "\xBB \u0435\u0449\u0451 ").concat(watch.length, " \u2014 \u043E\u0441\u043C\u043E\u0442\u0440\u0438\u0442\u0435 \u0438\u0445 \u0441\u0435\u0433\u043E\u0434\u043D\u044F") : "\u041A\u0443\u0440\u0441 \u043D\u0430\u0447\u0430\u0442: ".concat(pk.rounds, " ").concat(plural(pk.rounds, "обработка", "обработки", "обработок"), " \u0441 \u0438\u043D\u0442\u0435\u0440\u0432\u0430\u043B\u043E\u043C ").concat(gap, " \u0434\u043D."));
     },
-    onRound: product => {
-      const t = openPlant.treatment;
-      if (!t) return;
-      if ((t.rounds || []).length >= (t.roundsPlanned || 3)) {
+    onRound: (product, plantIds) => {
+      const S = snapshot();
+      const ob = outbreakOf(openPlant.id, S.outbreaks);
+      if (!ob) return;
+      if ((ob.rounds || []).length >= (ob.roundsPlanned || 3)) {
         showToast("Все обработки курса уже отмечены — осталось контрольное фото");
         return;
       }
-      const rounds = [...(t.rounds || []), {
+      const treated = plantIds && plantIds.length ? plantIds : ob.members.map(m => m.plantId);
+      const rounds = [...(ob.rounds || []), {
         at: now(),
-        product: product || ""
+        product: product || "",
+        plantIds: treated
       }];
-      const done = rounds.length >= (t.roundsPlanned || 3);
-      const nt = {
-        ...t,
+      const nob = {
+        ...ob,
         rounds,
-        checkDate: isoDate(new Date(Date.now() + (t.gap || 5) * 86400000))
+        checkDate: isoDate(new Date(Date.now() + (ob.gap || 5) * 86400000)),
+        updatedAt: Date.now()
       };
-      patchPlant(openPlant.id, {
-        treatment: nt
-      }, "\u041E\u0431\u0440\u0430\u0431\u043E\u0442\u043A\u0430 ".concat(rounds.length, " \u0438\u0437 ").concat(t.roundsPlanned).concat(product ? " (" + product + ")" : "", " \uD83E\uDDEA"));
-      showToast(done ? "Курс отработан — осталось проконтролировать" : "\u041E\u0431\u0440\u0430\u0431\u043E\u0442\u043A\u0430 ".concat(rounds.length, " \u0438\u0437 ").concat(t.roundsPlanned, " \u2713"), "undo");
+      const missed = ob.members.filter(m => treated.indexOf(m.plantId) < 0);
+      const done = rounds.length >= (ob.roundsPlanned || 3);
+      let nj = S.journal;
+      treated.forEach(pid => {
+        nj = journalWith(nj, pid, "event", "\u041E\u0431\u0440\u0430\u0431\u043E\u0442\u043A\u0430 ".concat(rounds.length, " \u0438\u0437 ").concat(ob.roundsPlanned).concat(product ? " (" + product + ")" : "", " \uD83E\uDDEA"));
+      });
+      commit({
+        outbreaks: S.outbreaks.map(o => o.id === ob.id ? nob : o),
+        journal: nj
+      });
+      showToast(missed.length ? "\u041E\u0442\u043C\u0435\u0447\u0435\u043D\u043E ".concat(treated.length, ". \u041D\u0435 \u043E\u0431\u0440\u0430\u0431\u043E\u0442\u0430\u043D\u044B: ").concat(missed.length, " \u2014 \u043E\u0442 \u043D\u0438\u0445 \u0432\u0440\u0435\u0434\u0438\u0442\u0435\u043B\u044C \u0432\u0435\u0440\u043D\u0451\u0442\u0441\u044F") : done ? "Курс отработан — осталось проконтролировать" : "\u041E\u0431\u0440\u0430\u0431\u043E\u0442\u043A\u0430 ".concat(rounds.length, " \u0438\u0437 ").concat(ob.roundsPlanned, " \u2713"), "undo");
     },
     onTreatmentCheck: result => {
-      const t = openPlant.treatment;
-      if (!t) return;
+      const S = snapshot();
+      const ob = outbreakOf(openPlant.id, S.outbreaks);
+      if (!ob) return;
       const trendWord = result.trend === "better" ? "стало лучше" : result.trend === "worse" ? "стало хуже" : "пока так же";
       const entry = {
         at: now(),
         trend: result.trend,
         status: result.status
       };
-      const roundsDone = (t.rounds || []).length;
+      const roundsDone = (ob.rounds || []).length;
       /* Курс не закрываем раньше, чем отработаны все обработки: выжившие яйца
          дадут вспышку через 2-3 недели. */
-      const done = result.recommendation === "done" && roundsDone >= (t.roundsPlanned || 3);
-      const nextDays = Math.max(2, Math.min(21, Number(result.nextCheckDays) || t.gap || 5));
-      const newTreatment = done ? {
-        ...t,
-        active: false,
-        history: [...(t.history || []), entry],
-        endedAt: now()
-      } : {
-        ...t,
-        plan: result.plan || t.plan,
-        checkDate: isoDate(new Date(Date.now() + nextDays * 86400000)),
-        history: [...(t.history || []), entry]
-      };
-      const np = snapshot().plants.map(x => x.id === openPlant.id ? {
-        ...x,
-        treatment: newTreatment,
+      const done = result.recommendation === "done" && roundsDone >= (ob.roundsPlanned || 3);
+      const nextDays = Math.max(2, Math.min(21, Number(result.nextCheckDays) || ob.gap || 5));
+      /* Две недели наблюдения после курса: повторная находка в этой же
+         зоне присоединится к той же вспышке, а не заведёт новую. */
+      const nob = done ? {
+        ...ob,
+        status: "watch",
+        endedAt: now(),
+        watchUntil: isoDate(new Date(Date.now() + 14 * 86400000)),
+        history: [...(ob.history || []), entry],
+        members: ob.members.map(m => ({
+          ...m,
+          clearedAt: now()
+        })),
         updatedAt: Date.now()
-      } : x);
-      const nj = journalWith(snapshot().journal, openPlant.id, "diagnosis", "\u041A\u043E\u043D\u0442\u0440\u043E\u043B\u044C \u043B\u0435\u0447\u0435\u043D\u0438\u044F (".concat(trendWord, "): ").concat(result.status), {
+      } : {
+        ...ob,
+        plan: result.plan || ob.plan,
+        checkDate: isoDate(new Date(Date.now() + nextDays * 86400000)),
+        history: [...(ob.history || []), entry],
+        updatedAt: Date.now()
+      };
+      const nj = journalWith(S.journal, openPlant.id, "diagnosis", "\u041A\u043E\u043D\u0442\u0440\u043E\u043B\u044C \u043B\u0435\u0447\u0435\u043D\u0438\u044F (".concat(trendWord, "): ").concat(result.status), {
         severity: result.trend === "worse" ? "attention" : "ok"
       });
       commit({
-        plants: np,
+        outbreaks: S.outbreaks.map(o => o.id === ob.id ? nob : o),
         journal: nj
       });
-      showToast(done ? "Лечение завершено ✓" : "Контроль записан, план обновлён");
+      showToast(done ? "Лечение завершено ✓ Две недели понаблюдаем" : "Контроль записан, план обновлён");
     },
     onStopTreatment: () => {
-      patchPlant(openPlant.id, {
-        treatment: {
-          ...openPlant.treatment,
-          active: false,
-          endedAt: now()
-        }
-      }, "Курс лечения завершён");
+      const S = snapshot();
+      const ob = outbreakOf(openPlant.id, S.outbreaks);
+      if (!ob) return;
+      const nob = {
+        ...ob,
+        status: "done",
+        endedAt: now(),
+        members: ob.members.map(m => ({
+          ...m,
+          clearedAt: now()
+        })),
+        updatedAt: Date.now()
+      };
+      const nj = journalWith(S.journal, openPlant.id, "event", "Курс лечения завершён");
+      commit({
+        outbreaks: S.outbreaks.map(o => o.id === ob.id ? nob : o),
+        journal: nj
+      });
       showToast("Курс завершён", "undo");
+    },
+    onIsolate: on => {
+      patchPlant(openPlant.id, {
+        isolated: on ? {
+          at: now()
+        } : null
+      }, on ? "Отсажено на время лечения" : "Вернулось на место");
+      showToast(on ? "Отмечено: стоит отдельно" : "Вернулось на место", "undo");
     },
     onUpdateCare: patch => {
       patchPlant(openPlant.id, patch);
@@ -4693,6 +4886,11 @@ function MyGarden() {
     t: "Растения мечты",
     icon: "flower",
     n: wishlist.length
+  }, {
+    v: "health",
+    t: "Здоровье сада",
+    icon: "bandage",
+    n: activeOutbreaks(outbreaks).length
   }, {
     v: "vacation",
     t: "Режим «отпуск»",
@@ -4789,7 +4987,7 @@ function MyGarden() {
   }), /*#__PURE__*/React.createElement(NavTab, {
     icon: "dots",
     label: "\u0415\u0449\u0451",
-    active: moreOpen || ["wishlist", "stats", "setup", "vacation"].indexOf(view) >= 0,
+    active: moreOpen || ["wishlist", "stats", "setup", "vacation", "health", "archive"].indexOf(view) >= 0,
     onClick: () => setMoreOpen(!moreOpen)
   })))), /*#__PURE__*/React.createElement("input", {
     ref: importRef,
@@ -4950,6 +5148,7 @@ function GardenView(_ref21) {
     search = _ref21.search,
     setSearch = _ref21.setSearch,
     dueInfo = _ref21.dueInfo,
+    sickIds = _ref21.sickIds,
     archivedCount = _ref21.archivedCount,
     backupNudge = _ref21.backupNudge,
     onOpen = _ref21.onOpen,
@@ -4960,14 +5159,14 @@ function GardenView(_ref21) {
     onSettings = _ref21.onSettings,
     showToast = _ref21.showToast;
   const subtitleMap = useMemo(() => buildSubtitleMap(allPlants), [allPlants]);
-  const _useState57 = useState(false),
-    _useState58 = _slicedToArray(_useState57, 2),
-    cardBusy = _useState58[0],
-    setCardBusy = _useState58[1];
   const _useState59 = useState(false),
     _useState60 = _slicedToArray(_useState59, 2),
-    showTop = _useState60[0],
-    setShowTop = _useState60[1];
+    cardBusy = _useState60[0],
+    setCardBusy = _useState60[1];
+  const _useState61 = useState(false),
+    _useState62 = _slicedToArray(_useState61, 2),
+    showTop = _useState62[0],
+    setShowTop = _useState62[1];
   useEffect(() => {
     const onScroll = () => setShowTop(window.scrollY > 900);
     window.addEventListener("scroll", onScroll, {
@@ -5045,6 +5244,7 @@ function GardenView(_ref21) {
   const Card = _ref22 => {
     let p = _ref22.p;
     const d = dueInfo(p);
+    const sick = !!(sickIds && sickIds[p.id]);
     const sub = subtitleMap[speciesKey(p.care && p.care.latinName || "", p.name)] || speciesSubtitle(p);
     if (compact) {
       return /*#__PURE__*/React.createElement("button", {
@@ -5091,7 +5291,7 @@ function GardenView(_ref21) {
         name: "drop",
         size: 17,
         color: C.waterDeep
-      }), p.treatment && p.treatment.active && /*#__PURE__*/React.createElement(Icon, {
+      }), sick && /*#__PURE__*/React.createElement(Icon, {
         name: "bandage",
         size: 16,
         color: C.blossomText
@@ -5103,7 +5303,7 @@ function GardenView(_ref21) {
           overflow: "hidden",
           clip: "rect(0 0 0 0)"
         }
-      }, [d.waterDue && "нужен полив", p.treatment && p.treatment.active && "идёт лечение"].filter(Boolean).join(", ")));
+      }, [d.waterDue && "нужен полив", sick && "идёт лечение"].filter(Boolean).join(", ")));
     }
     return /*#__PURE__*/React.createElement("button", {
       onClick: () => onOpen(p.id),
@@ -5153,7 +5353,7 @@ function GardenView(_ref21) {
       name: p.location === "balcony" ? "cloudSun" : "home",
       size: 13,
       color: C.sageText
-    }), shortSpot(p.spot) || (p.location === "balcony" ? "балкон" : "дома"))), (d.waterDue || d.feedDue || p.treatment && p.treatment.active) && /*#__PURE__*/React.createElement("span", {
+    }), shortSpot(p.spot) || (p.location === "balcony" ? "балкон" : "дома"))), (d.waterDue || d.feedDue || sick) && /*#__PURE__*/React.createElement("span", {
       style: {
         position: "absolute",
         width: 1,
@@ -5162,7 +5362,7 @@ function GardenView(_ref21) {
         clip: "rect(0 0 0 0)",
         whiteSpace: "nowrap"
       }
-    }, [d.waterDue && "нужен полив", d.feedDue && "нужна подкормка", p.treatment && p.treatment.active && "идёт лечение"].filter(Boolean).join(", ")), (d.waterDue || d.feedDue || p.treatment && p.treatment.active) && /*#__PURE__*/React.createElement("span", {
+    }, [d.waterDue && "нужен полив", d.feedDue && "нужна подкормка", sick && "идёт лечение"].filter(Boolean).join(", ")), (d.waterDue || d.feedDue || sick) && /*#__PURE__*/React.createElement("span", {
       "aria-hidden": "true",
       style: {
         position: "absolute",
@@ -5179,7 +5379,7 @@ function GardenView(_ref21) {
       name: "leaf",
       size: 18,
       color: C.moss
-    }), p.treatment && p.treatment.active && /*#__PURE__*/React.createElement(Icon, {
+    }), sick && /*#__PURE__*/React.createElement(Icon, {
       name: "bandage",
       size: 18,
       color: C.blossomText
@@ -5547,22 +5747,22 @@ function TodayView(_ref24) {
     onExport = _ref24.onExport,
     onSettings = _ref24.onSettings;
   const factPlant = fact && plants.find(p => p.id === fact.plantId);
-  const _useState61 = useState(null),
-    _useState62 = _slicedToArray(_useState61, 2),
-    openWhen = _useState62[0],
-    setOpenWhen = _useState62[1];
-  const _useState63 = useState({}),
+  const _useState63 = useState(null),
     _useState64 = _slicedToArray(_useState63, 2),
-    leaving = _useState64[0],
-    setLeaving = _useState64[1];
-  const _useState65 = useState(false),
+    openWhen = _useState64[0],
+    setOpenWhen = _useState64[1];
+  const _useState65 = useState({}),
     _useState66 = _slicedToArray(_useState65, 2),
-    showSchedule = _useState66[0],
-    setShowSchedule = _useState66[1];
+    leaving = _useState66[0],
+    setLeaving = _useState66[1];
   const _useState67 = useState(false),
     _useState68 = _slicedToArray(_useState67, 2),
-    moreWeather = _useState68[0],
-    setMoreWeather = _useState68[1];
+    showSchedule = _useState68[0],
+    setShowSchedule = _useState68[1];
+  const _useState69 = useState(false),
+    _useState70 = _slicedToArray(_useState69, 2),
+    moreWeather = _useState70[0],
+    setMoreWeather = _useState70[1];
   const lead = weatherHintsList.find(h => h.lead);
   const rest = weatherHintsList.filter(h => !h.lead);
 
@@ -5726,17 +5926,23 @@ function TodayView(_ref24) {
         fontWeight: 400
       }
     }, p.nickname || p.name), " \u2014 ", years, " ", plural(years, "год", "года", "лет"), " \u0441 \u0432\u0430\u043C\u0438 \u0432 \u044D\u0442\u043E\u043C \u043C\u0435\u0441\u044F\u0446\u0435. \u0421\u0434\u0435\u043B\u0430\u0439\u0442\u0435 \u0441\u043D\u0438\u043C\u043E\u043A \u043D\u0430 \u043F\u0430\u043C\u044F\u0442\u044C \uD83D\uDCF8");
-  }), treatmentList.map(p => /*#__PURE__*/React.createElement(Notice, {
-    key: p.id,
-    icon: "bandage",
-    tone: "warn",
-    onClick: () => onOpen(p.id)
-  }, /*#__PURE__*/React.createElement("b", {
-    style: {
-      ...serif,
-      fontWeight: 400
-    }
-  }, p.nickname || p.name), " \u2014 \u043A\u0443\u0440\u0441 \u043B\u0435\u0447\u0435\u043D\u0438\u044F: \u043F\u043E\u0440\u0430", " ", (p.treatment.rounds || []).length < (p.treatment.roundsPlanned || 3) ? "\u043D\u0430 \u043E\u0431\u0440\u0430\u0431\u043E\u0442\u043A\u0443 ".concat((p.treatment.rounds || []).length + 1, " \u0438\u0437 ").concat(p.treatment.roundsPlanned) : "на контрольное фото", ".")), quarantineList.map(p => {
+  }), treatmentList.map(_ref26 => {
+    let o = _ref26.o,
+      sickPlants = _ref26.plants;
+    const doneRounds = (o.rounds || []).length;
+    const watch = (o.members || []).filter(m => m.role === "watch").length;
+    return /*#__PURE__*/React.createElement(Notice, {
+      key: o.id,
+      icon: "bandage",
+      tone: "warn",
+      onClick: () => onOpen(sickPlants[0].id)
+    }, /*#__PURE__*/React.createElement("b", {
+      style: {
+        ...serif,
+        fontWeight: 400
+      }
+    }, pest(o.pest).t), " \u043D\u0430 \xAB", o.zone, "\xBB \u2014 \u043F\u043E\u0440\u0430", " ", doneRounds < (o.roundsPlanned || 3) ? "\u043D\u0430 \u043E\u0431\u0440\u0430\u0431\u043E\u0442\u043A\u0443 ".concat(doneRounds + 1, " \u0438\u0437 ").concat(o.roundsPlanned) : "на контрольное фото", ". \u041B\u0435\u0447\u0438\u043C: ", sickPlants.map(x => x.nickname || x.name).join(", "), watch > 0 ? " \xB7 \u043F\u043E\u0434 \u043D\u0430\u0431\u043B\u044E\u0434\u0435\u043D\u0438\u0435\u043C \u0435\u0449\u0451 ".concat(watch) : "", ".");
+  }), quarantineList.map(p => {
     const left = quarantineLeft(p);
     return /*#__PURE__*/React.createElement(Notice, {
       key: p.id,
@@ -5881,15 +6087,15 @@ function TodayView(_ref24) {
     style: {
       marginLeft: "auto"
     }
-  }, "\u043F\u043E\u043B\u0438\u0442\u044C \u0432\u0441\u044E \u0433\u0440\u0443\u043F\u043F\u0443")), g.items.map(_ref26 => {
-    let p = _ref26.p,
-      waterDue = _ref26.waterDue,
-      feedDue = _ref26.feedDue,
-      mistDue = _ref26.mistDue,
-      wipeDue = _ref26.wipeDue,
-      dw = _ref26.dw,
-      interval = _ref26.interval,
-      neverWatered = _ref26.neverWatered;
+  }, "\u043F\u043E\u043B\u0438\u0442\u044C \u0432\u0441\u044E \u0433\u0440\u0443\u043F\u043F\u0443")), g.items.map(_ref27 => {
+    let p = _ref27.p,
+      waterDue = _ref27.waterDue,
+      feedDue = _ref27.feedDue,
+      mistDue = _ref27.mistDue,
+      wipeDue = _ref27.wipeDue,
+      dw = _ref27.dw,
+      interval = _ref27.interval,
+      neverWatered = _ref27.neverWatered;
     const tasks = [];
     if (waterDue) tasks.push(neverWatered ? "новичок — первый полив дома" : "\u043F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u043F\u043E\u043B\u0438\u0432 \u2014 ".concat(dw, " \u0434\u043D. \u043D\u0430\u0437\u0430\u0434 (\u043D\u043E\u0440\u043C\u0430 ").concat(interval, ")"));
     if (feedDue) tasks.push("подкормка");
@@ -6036,10 +6242,10 @@ function TodayView(_ref24) {
       color: C.ink,
       marginBottom: 6
     }
-  }, b.t, " \xB7 ", b.items.length), b.items.map(_ref27 => {
-    let p = _ref27.p,
-      interval = _ref27.interval,
-      left = _ref27.left;
+  }, b.t, " \xB7 ", b.items.length), b.items.map(_ref28 => {
+    let p = _ref28.p,
+      interval = _ref28.interval,
+      left = _ref28.left;
     return /*#__PURE__*/React.createElement("div", {
       key: p.id,
       style: {
@@ -6090,13 +6296,13 @@ function TodayView(_ref24) {
 }
 
 /* Тихая строка о сохранности: молчаливый отказ — худший из отказов */
-function SafetyLine(_ref28) {
-  let health = _ref28.health,
-    sync = _ref28.sync,
-    syncAvailable = _ref28.syncAvailable,
-    lastBackup = _ref28.lastBackup,
-    onExport = _ref28.onExport,
-    onSettings = _ref28.onSettings;
+function SafetyLine(_ref29) {
+  let health = _ref29.health,
+    sync = _ref29.sync,
+    syncAvailable = _ref29.syncAvailable,
+    lastBackup = _ref29.lastBackup,
+    onExport = _ref29.onExport,
+    onSettings = _ref29.onSettings;
   const bad = health && (health.localFail || health.cloudFail);
   const days = t => t ? Math.floor((Date.now() - t) / 86400000) : null;
   const bd = days(lastBackup);
@@ -6138,107 +6344,107 @@ function SafetyLine(_ref28) {
 }
 
 /* ─────────────────────────  Добавление растения  ───────────────────────── */
-function AddView(_ref29) {
-  let onDone = _ref29.onDone,
-    onCancel = _ref29.onCancel,
-    showToast = _ref29.showToast,
-    plants = _ref29.plants,
-    prefillName = _ref29.prefillName,
-    spots = _ref29.spots,
-    apartment = _ref29.apartment,
-    onEditPlaces = _ref29.onEditPlaces;
-  const _useState69 = useState(prefillName || ""),
-    _useState70 = _slicedToArray(_useState69, 2),
-    name = _useState70[0],
-    setName = _useState70[1];
-  const _useState71 = useState(""),
+function AddView(_ref30) {
+  let onDone = _ref30.onDone,
+    onCancel = _ref30.onCancel,
+    showToast = _ref30.showToast,
+    plants = _ref30.plants,
+    prefillName = _ref30.prefillName,
+    spots = _ref30.spots,
+    apartment = _ref30.apartment,
+    onEditPlaces = _ref30.onEditPlaces;
+  const _useState71 = useState(prefillName || ""),
     _useState72 = _slicedToArray(_useState71, 2),
-    nickname = _useState72[0],
-    setNickname = _useState72[1];
+    name = _useState72[0],
+    setName = _useState72[1];
   const _useState73 = useState(""),
     _useState74 = _slicedToArray(_useState73, 2),
-    ownedSince = _useState74[0],
-    setOwnedSince = _useState74[1];
-  const _useState75 = useState("bought"),
+    nickname = _useState74[0],
+    setNickname = _useState74[1];
+  const _useState75 = useState(""),
     _useState76 = _slicedToArray(_useState75, 2),
-    origin = _useState76[0],
-    setOrigin = _useState76[1];
-  const _useState77 = useState(""),
+    ownedSince = _useState76[0],
+    setOwnedSince = _useState76[1];
+  const _useState77 = useState("bought"),
     _useState78 = _slicedToArray(_useState77, 2),
-    parentId = _useState78[0],
-    setParentId = _useState78[1];
+    origin = _useState78[0],
+    setOrigin = _useState78[1];
   const _useState79 = useState(""),
     _useState80 = _slicedToArray(_useState79, 2),
-    parentQ = _useState80[0],
-    setParentQ = _useState80[1];
-  const _useState81 = useState("home"),
+    parentId = _useState80[0],
+    setParentId = _useState80[1];
+  const _useState81 = useState(""),
     _useState82 = _slicedToArray(_useState81, 2),
-    location = _useState82[0],
-    setLocation = _useState82[1];
-  const _useState83 = useState(""),
+    parentQ = _useState82[0],
+    setParentQ = _useState82[1];
+  const _useState83 = useState("home"),
     _useState84 = _slicedToArray(_useState83, 2),
-    spot = _useState84[0],
-    setSpot = _useState84[1];
-  const _useState85 = useState(null),
+    location = _useState84[0],
+    setLocation = _useState84[1];
+  const _useState85 = useState(""),
     _useState86 = _slicedToArray(_useState85, 2),
-    photo = _useState86[0],
-    setPhoto = _useState86[1];
+    spot = _useState86[0],
+    setSpot = _useState86[1];
   const _useState87 = useState(null),
     _useState88 = _slicedToArray(_useState87, 2),
-    care = _useState88[0],
-    setCare = _useState88[1];
-  const _useState89 = useState(false),
+    photo = _useState88[0],
+    setPhoto = _useState88[1];
+  const _useState89 = useState(null),
     _useState90 = _slicedToArray(_useState89, 2),
-    busy = _useState90[0],
-    setBusy = _useState90[1];
+    care = _useState90[0],
+    setCare = _useState90[1];
   const _useState91 = useState(false),
     _useState92 = _slicedToArray(_useState91, 2),
-    details = _useState92[0],
-    setDetails = _useState92[1];
-  const _useState93 = useState(""),
+    busy = _useState92[0],
+    setBusy = _useState92[1];
+  const _useState93 = useState(false),
     _useState94 = _slicedToArray(_useState93, 2),
-    potCm = _useState94[0],
-    setPotCm = _useState94[1];
-  const _useState95 = useState("plastic"),
+    details = _useState94[0],
+    setDetails = _useState94[1];
+  const _useState95 = useState(""),
     _useState96 = _slicedToArray(_useState95, 2),
-    potMaterial = _useState96[0],
-    setPotMaterial = _useState96[1];
-  const _useState97 = useState(true),
+    potCm = _useState96[0],
+    setPotCm = _useState96[1];
+  const _useState97 = useState("plastic"),
     _useState98 = _slicedToArray(_useState97, 2),
-    drainage = _useState98[0],
-    setDrainage = _useState98[1];
-  const _useState99 = useState("universal"),
+    potMaterial = _useState98[0],
+    setPotMaterial = _useState98[1];
+  const _useState99 = useState(true),
     _useState100 = _slicedToArray(_useState99, 2),
-    substrate = _useState100[0],
-    setSubstrate = _useState100[1];
-  const _useState101 = useState(null),
+    drainage = _useState100[0],
+    setDrainage = _useState100[1];
+  const _useState101 = useState("universal"),
     _useState102 = _slicedToArray(_useState101, 2),
-    placeHint = _useState102[0],
-    setPlaceHint = _useState102[1];
-  const _useState103 = useState(false),
+    substrate = _useState102[0],
+    setSubstrate = _useState102[1];
+  const _useState103 = useState(null),
     _useState104 = _slicedToArray(_useState103, 2),
-    placeBusy = _useState104[0],
-    setPlaceBusy = _useState104[1];
+    placeHint = _useState104[0],
+    setPlaceHint = _useState104[1];
   const _useState105 = useState(false),
     _useState106 = _slicedToArray(_useState105, 2),
-    idBusy = _useState106[0],
-    setIdBusy = _useState106[1];
-  const _useState107 = useState(""),
+    placeBusy = _useState106[0],
+    setPlaceBusy = _useState106[1];
+  const _useState107 = useState(false),
     _useState108 = _slicedToArray(_useState107, 2),
-    idNote = _useState108[0],
-    setIdNote = _useState108[1];
-  const _useState109 = useState(null),
+    idBusy = _useState108[0],
+    setIdBusy = _useState108[1];
+  const _useState109 = useState(""),
     _useState110 = _slicedToArray(_useState109, 2),
-    idConf = _useState110[0],
-    setIdConf = _useState110[1];
-  const _useState111 = useState(false),
+    idNote = _useState110[0],
+    setIdNote = _useState110[1];
+  const _useState111 = useState(null),
     _useState112 = _slicedToArray(_useState111, 2),
-    photoSrcChoose = _useState112[0],
-    setPhotoSrcChoose = _useState112[1];
-  const _useState113 = useState(null),
+    idConf = _useState112[0],
+    setIdConf = _useState112[1];
+  const _useState113 = useState(false),
     _useState114 = _slicedToArray(_useState113, 2),
-    prevName = _useState114[0],
-    setPrevName = _useState114[1];
+    photoSrcChoose = _useState114[0],
+    setPhotoSrcChoose = _useState114[1];
+  const _useState115 = useState(null),
+    _useState116 = _slicedToArray(_useState115, 2),
+    prevName = _useState116[0],
+    setPrevName = _useState116[1];
   const fileRef = useRef(null);
   const camRef = useRef(null);
   async function identifyFrom(dataUrl) {
@@ -6723,6 +6929,7 @@ function PlantView(props) {
     invText = props.invText,
     inventory = props.inventory,
     allPlants = props.allPlants,
+    outbreaks = props.outbreaks,
     onOpenPlant = props.onOpenPlant,
     spots = props.spots,
     quarantineLeft = props.quarantineLeft,
@@ -6749,6 +6956,7 @@ function PlantView(props) {
     onRound = props.onRound,
     onTreatmentCheck = props.onTreatmentCheck,
     onStopTreatment = props.onStopTreatment,
+    onIsolate = props.onIsolate,
     onUpdateCare = props.onUpdateCare,
     onEdit = props.onEdit,
     onRepot = props.onRepot,
@@ -6759,110 +6967,114 @@ function PlantView(props) {
     onBuyNeed = props.onBuyNeed,
     onRemoveNeed = props.onRemoveNeed,
     showToast = props.showToast;
-  const _useState115 = useState("care"),
-    _useState116 = _slicedToArray(_useState115, 2),
-    tab = _useState116[0],
-    setTab = _useState116[1];
-  const _useState117 = useState(false),
+  const _useState117 = useState("care"),
     _useState118 = _slicedToArray(_useState117, 2),
-    moving = _useState118[0],
-    setMoving = _useState118[1];
+    tab = _useState118[0],
+    setTab = _useState118[1];
   const _useState119 = useState(false),
     _useState120 = _slicedToArray(_useState119, 2),
-    editing = _useState120[0],
-    setEditing = _useState120[1];
-  const _useState121 = useState(null),
+    moving = _useState120[0],
+    setMoving = _useState120[1];
+  const _useState121 = useState(false),
     _useState122 = _slicedToArray(_useState121, 2),
-    whenOpen = _useState122[0],
-    setWhenOpen = _useState122[1];
+    editing = _useState122[0],
+    setEditing = _useState122[1];
   const _useState123 = useState(null),
     _useState124 = _slicedToArray(_useState123, 2),
-    galView = _useState124[0],
-    setGalView = _useState124[1];
-  const _useState125 = useState(false),
+    whenOpen = _useState124[0],
+    setWhenOpen = _useState124[1];
+  const _useState125 = useState(null),
     _useState126 = _slicedToArray(_useState125, 2),
-    galSrc = _useState126[0],
-    setGalSrc = _useState126[1];
-  const _useState127 = useState(""),
+    galView = _useState126[0],
+    setGalView = _useState126[1];
+  const _useState127 = useState(false),
     _useState128 = _slicedToArray(_useState127, 2),
-    note = _useState128[0],
-    setNote = _useState128[1];
+    galSrc = _useState128[0],
+    setGalSrc = _useState128[1];
   const _useState129 = useState(""),
     _useState130 = _slicedToArray(_useState129, 2),
-    needText = _useState130[0],
-    setNeedText = _useState130[1];
-  const _useState131 = useState(false),
+    note = _useState130[0],
+    setNote = _useState130[1];
+  const _useState131 = useState(""),
     _useState132 = _slicedToArray(_useState131, 2),
-    careBusy = _useState132[0],
-    setCareBusy = _useState132[1];
-  const _useState133 = useState(null),
+    needText = _useState132[0],
+    setNeedText = _useState132[1];
+  const _useState133 = useState(false),
     _useState134 = _slicedToArray(_useState133, 2),
-    diag = _useState134[0],
-    setDiag = _useState134[1];
-  const _useState135 = useState(false),
+    careBusy = _useState134[0],
+    setCareBusy = _useState134[1];
+  const _useState135 = useState(null),
     _useState136 = _slicedToArray(_useState135, 2),
-    diagBusy = _useState136[0],
-    setDiagBusy = _useState136[1];
+    diag = _useState136[0],
+    setDiag = _useState136[1];
   const _useState137 = useState(false),
     _useState138 = _slicedToArray(_useState137, 2),
-    diagSrc = _useState138[0],
-    setDiagSrc = _useState138[1];
-  const _useState139 = useState({}),
+    diagBusy = _useState138[0],
+    setDiagBusy = _useState138[1];
+  const _useState139 = useState(false),
     _useState140 = _slicedToArray(_useState139, 2),
-    checks = _useState140[0],
-    setChecks = _useState140[1];
-  const _useState141 = useState(false),
+    diagSrc = _useState140[0],
+    setDiagSrc = _useState140[1];
+  const _useState141 = useState({}),
     _useState142 = _slicedToArray(_useState141, 2),
-    treatBusy = _useState142[0],
-    setTreatBusy = _useState142[1];
-  const _useState143 = useState(null),
+    checks = _useState142[0],
+    setChecks = _useState142[1];
+  const _useState143 = useState(false),
     _useState144 = _slicedToArray(_useState143, 2),
-    treatResult = _useState144[0],
-    setTreatResult = _useState144[1];
+    treatBusy = _useState144[0],
+    setTreatBusy = _useState144[1];
   const _useState145 = useState(null),
     _useState146 = _slicedToArray(_useState145, 2),
-    pestPick = _useState146[0],
-    setPestPick = _useState146[1];
-  const _useState147 = useState(""),
+    treatResult = _useState146[0],
+    setTreatResult = _useState146[1];
+  const _useState147 = useState(null),
     _useState148 = _slicedToArray(_useState147, 2),
-    roundProduct = _useState148[0],
-    setRoundProduct = _useState148[1];
-  const _useState149 = useState(false),
+    pestPick = _useState148[0],
+    setPestPick = _useState148[1];
+  const _useState149 = useState(""),
     _useState150 = _slicedToArray(_useState149, 2),
-    repotOpen = _useState150[0],
-    setRepotOpen = _useState150[1];
-  const _useState151 = useState(plant.qa || []),
+    roundProduct = _useState150[0],
+    setRoundProduct = _useState150[1];
+  const _useState151 = useState(null),
     _useState152 = _slicedToArray(_useState151, 2),
-    qa = _useState152[0],
-    setQa = _useState152[1];
-  const _useState153 = useState(""),
+    roundPicked = _useState152[0],
+    setRoundPicked = _useState152[1];
+  const _useState153 = useState(false),
     _useState154 = _slicedToArray(_useState153, 2),
-    qaInput = _useState154[0],
-    setQaInput = _useState154[1];
-  const _useState155 = useState(false),
+    repotOpen = _useState154[0],
+    setRepotOpen = _useState154[1];
+  const _useState155 = useState(plant.qa || []),
     _useState156 = _slicedToArray(_useState155, 2),
-    qaBusy = _useState156[0],
-    setQaBusy = _useState156[1];
-  const _useState157 = useState(false),
+    qa = _useState156[0],
+    setQa = _useState156[1];
+  const _useState157 = useState(""),
     _useState158 = _slicedToArray(_useState157, 2),
-    showPassport = _useState158[0],
-    setShowPassport = _useState158[1];
+    qaInput = _useState158[0],
+    setQaInput = _useState158[1];
   const _useState159 = useState(false),
     _useState160 = _slicedToArray(_useState159, 2),
-    careEdit = _useState160[0],
-    setCareEdit = _useState160[1];
+    qaBusy = _useState160[0],
+    setQaBusy = _useState160[1];
   const _useState161 = useState(false),
     _useState162 = _slicedToArray(_useState161, 2),
-    storyEdit = _useState162[0],
-    setStoryEdit = _useState162[1];
-  const _useState163 = useState(""),
+    showPassport = _useState162[0],
+    setShowPassport = _useState162[1];
+  const _useState163 = useState(false),
     _useState164 = _slicedToArray(_useState163, 2),
-    storyText = _useState164[0],
-    setStoryText = _useState164[1];
+    careEdit = _useState164[0],
+    setCareEdit = _useState164[1];
   const _useState165 = useState(false),
     _useState166 = _slicedToArray(_useState165, 2),
-    cardBusy = _useState166[0],
-    setCardBusy = _useState166[1];
+    storyEdit = _useState166[0],
+    setStoryEdit = _useState166[1];
+  const _useState167 = useState(""),
+    _useState168 = _slicedToArray(_useState167, 2),
+    storyText = _useState168[0],
+    setStoryText = _useState168[1];
+  const _useState169 = useState(false),
+    _useState170 = _slicedToArray(_useState169, 2),
+    cardBusy = _useState170[0],
+    setCardBusy = _useState170[1];
   const galFileRef = useRef(null);
   const galCamRef = useRef(null);
   const diagRef = useRef(null);
@@ -6948,14 +7160,14 @@ function PlantView(props) {
     setDiagBusy(false);
   }
   async function handleTreatmentPhoto(f) {
-    if (!plant.treatment) return;
+    if (!treat) return;
     setTreatBusy(true);
     setTreatResult(null);
     try {
       const compressed = await compressImage(f, 1024, 0.8);
       const base64 = compressed.split(",")[1];
       const mediaType = compressed.substring(5, compressed.indexOf(";"));
-      const result = await treatmentCheck(base64, mediaType, plant, plant.treatment, apartment);
+      const result = await treatmentCheck(base64, mediaType, plant, treat, apartment);
       setTreatResult(result);
       onTreatmentCheck(result);
       try {
@@ -7004,7 +7216,15 @@ function PlantView(props) {
     attention: "стоит присмотреться",
     urgent: "нужна помощь"
   };
-  const tSince = plant.treatment ? plant.treatment : null;
+  const myOutbreak = outbreakOf(plant.id, outbreaks);
+  const myRole = roleIn(myOutbreak, plant.id);
+  const treat = treatmentOf(plant, outbreaks);
+  const pestPast = pestHistoryOf(plant.id, outbreaks);
+  const zoneMates = myOutbreak ? (myOutbreak.members || []).filter(m => !m.clearedAt).map(m => ({
+    m,
+    p: (allPlants || []).find(x => x.id === m.plantId)
+  })).filter(x => x.p) : [];
+  const tSince = treat;
   const first = gallery.length > 1 ? gallery[gallery.length - 1] : null;
   const last = gallery.length > 1 ? gallery[0] : null;
   const spanMonths = first && last ? Math.max(1, Math.round((new Date(last.date) - new Date(first.date)) / (30.44 * 86400000))) : 0;
@@ -7405,11 +7625,11 @@ function PlantView(props) {
       flexWrap: "wrap",
       marginBottom: 10
     }
-  }, [["wet", "земля влажная на 5 см вглубь", "soil"], ["dry", "земля сухая на 5 см вглубь", "soil"], ["heavy", "горшок тяжёлый", "weight"], ["light", "горшок лёгкий", "weight"], ["smell", "земля пахнет затхлым", null], ["tray", "в поддоне стоит вода", null], ["none", "не проверяла", "all"]].map(_ref30 => {
-    let _ref31 = _slicedToArray(_ref30, 3),
-      k = _ref31[0],
-      t = _ref31[1],
-      grp = _ref31[2];
+  }, [["wet", "земля влажная на 5 см вглубь", "soil"], ["dry", "земля сухая на 5 см вглубь", "soil"], ["heavy", "горшок тяжёлый", "weight"], ["light", "горшок лёгкий", "weight"], ["smell", "земля пахнет затхлым", null], ["tray", "в поддоне стоит вода", null], ["none", "не проверяла", "all"]].map(_ref31 => {
+    let _ref32 = _slicedToArray(_ref31, 3),
+      k = _ref32[0],
+      t = _ref32[1],
+      grp = _ref32[2];
     return /*#__PURE__*/React.createElement(Chip, {
       key: k,
       small: true,
@@ -7665,7 +7885,38 @@ function PlantView(props) {
       color: C.moss,
       lineHeight: 1.5
     }
-  }, treatResult.status)), /*#__PURE__*/React.createElement("div", {
+  }, treatResult.status)), zoneMates.length > 1 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...sans,
+      fontSize: 13,
+      color: C.moss,
+      marginBottom: 6,
+      lineHeight: 1.5
+    }
+  }, "\u041C\u0435\u0441\u0442\u043E \xAB", myOutbreak.zone, "\xBB \u2014 \u043E\u0431\u0440\u0430\u0431\u0430\u0442\u044B\u0432\u0430\u0435\u043C \u0432\u043C\u0435\u0441\u0442\u0435, \u0438\u043D\u0430\u0447\u0435 \u0432\u0440\u0435\u0434\u0438\u0442\u0435\u043B\u044C \u0432\u0435\u0440\u043D\u0451\u0442\u0441\u044F \u043E\u0442 \u0441\u043E\u0441\u0435\u0434\u0430:"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      flexWrap: "wrap"
+    }
+  }, zoneMates.map(_ref33 => {
+    let m = _ref33.m,
+      mp = _ref33.p;
+    const picked = (roundPicked || zoneMates.map(z => z.m.plantId)).indexOf(m.plantId) >= 0;
+    return /*#__PURE__*/React.createElement(Chip, {
+      key: m.plantId,
+      small: true,
+      active: picked,
+      onClick: () => {
+        const cur = roundPicked || zoneMates.map(z => z.m.plantId);
+        setRoundPicked(picked ? cur.filter(x => x !== m.plantId) : cur.concat([m.plantId]));
+      }
+    }, mp.nickname || mp.name, m.role === "watch" ? " · наблюдение" : "");
+  }))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -7685,8 +7936,9 @@ function PlantView(props) {
     small: true,
     tone: "moss",
     onClick: () => {
-      onRound(roundProduct);
+      onRound(roundProduct, roundPicked || zoneMates.map(z => z.m.plantId));
       setRoundProduct("");
+      setRoundPicked(null);
     }
   }, "\u041E\u0431\u0440\u0430\u0431\u043E\u0442\u043A\u0430 \u0441\u0434\u0435\u043B\u0430\u043D\u0430"), /*#__PURE__*/React.createElement(Btn, {
     small: true,
@@ -7702,6 +7954,8 @@ function PlantView(props) {
     icon: "image",
     title: "\u041A\u043E\u043D\u0442\u0440\u043E\u043B\u044C\u043D\u043E\u0435 \u0444\u043E\u0442\u043E \u0438\u0437 \u0433\u0430\u043B\u0435\u0440\u0435\u0438"
   }), /*#__PURE__*/React.createElement(Link, {
+    onClick: () => onIsolate(!plant.isolated)
+  }, plant.isolated ? "вернуть на место" : "отсадить отдельно"), /*#__PURE__*/React.createElement(Link, {
     tone: "danger",
     onClick: () => setAsk({
       title: "Завершить курс лечения?",
@@ -7734,7 +7988,62 @@ function PlantView(props) {
       if (f) handleTreatmentPhoto(f);
       e.target.value = "";
     }
-  }))), treatResult && !(tSince && tSince.active) && /*#__PURE__*/React.createElement("div", {
+  }))), myRole === "watch" && myOutbreak && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 16,
+      borderRadius: R.lg,
+      border: "1px solid ".concat(C.sunText),
+      background: C.paperDeep,
+      padding: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...sans,
+      fontSize: 11.5,
+      color: C.sunText,
+      letterSpacing: 0.5,
+      textTransform: "uppercase",
+      marginBottom: 6
+    }
+  }, "\u041F\u043E\u0434 \u043D\u0430\u0431\u043B\u044E\u0434\u0435\u043D\u0438\u0435\u043C"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...sans,
+      fontSize: 14.5,
+      color: C.ink,
+      lineHeight: 1.55
+    }
+  }, "\u0420\u044F\u0434\u043E\u043C \u043D\u0430 \xAB", myOutbreak.zone, "\xBB \u043B\u0435\u0447\u0430\u0442 ", pest(myOutbreak.pest).t.toLowerCase(), ". \u0421\u0430\u043C\u043E \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0435 \u043F\u043E\u043A\u0430 \u0447\u0438\u0441\u0442\u043E\u0435 \u2014 \u043D\u043E \u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u0441\u0442\u043E\u0438\u0442: ", pest(myOutbreak.pest).check || "по общим признакам увядания и налёта"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 14,
+      marginTop: 10,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement(Link, {
+    onClick: () => setDiagSrc(!diagSrc)
+  }, "\u043E\u0441\u043C\u043E\u0442\u0440\u0435\u0442\u044C \u043F\u043E \u0444\u043E\u0442\u043E"))), pestPast.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 16,
+      ...sans,
+      fontSize: 13.5,
+      color: C.moss,
+      lineHeight: 1.6
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.sageText
+    }
+  }, "\u0411\u043E\u043B\u0435\u043B\u043E: "), pestPast.map((o, i) => /*#__PURE__*/React.createElement(React.Fragment, {
+    key: o.id
+  }, i > 0 && " · ", pest(o.pest).t.toLowerCase(), " (", fmtMonth(String(o.startedAt).slice(0, 7)), ")")), pestPast.length >= 2 && (() => {
+    const same = pestPast.filter(o => o.pest === pestPast[0].pest).length;
+    return same >= 2 ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 4,
+        color: C.sunText
+      }
+    }, pest(pestPast[0].pest).t, " \u0432\u043E\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u0442\u0441\u044F \u2014 \u0434\u0435\u043B\u043E, \u0441\u043A\u043E\u0440\u0435\u0435 \u0432\u0441\u0435\u0433\u043E, \u0432 \u0443\u0441\u043B\u043E\u0432\u0438\u044F\u0445, \u0430 \u043D\u0435 \u0432 \u043D\u0435\u0432\u0435\u0437\u0435\u043D\u0438\u0438.") : null;
+  })()), treatResult && !(tSince && tSince.active) && /*#__PURE__*/React.createElement("div", {
     className: "reveal",
     style: {
       marginTop: 16,
@@ -7904,7 +8213,7 @@ function PlantView(props) {
       marginBottom: 3,
       lineHeight: 1.5
     }
-  }, x)))), diag.matchesPlant !== false && diag.severity && diag.severity !== "ok" && !(plant.treatment && plant.treatment.active) && /*#__PURE__*/React.createElement("div", {
+  }, x)))), diag.matchesPlant !== false && diag.severity && diag.severity !== "ok" && !treat && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 12,
       paddingTop: 12,
@@ -8233,9 +8542,9 @@ function PlantView(props) {
     title: "\u0418\u0437 \u0445\u043E\u0437\u044F\u0439\u0441\u0442\u0432\u0430 \u043F\u043E\u0434\u0445\u043E\u0434\u0438\u0442",
     count: invMatches.length,
     icon: "basket"
-  }, invMatches.map(_ref32 => {
-    let item = _ref32.item,
-      how = _ref32.how;
+  }, invMatches.map(_ref34 => {
+    let item = _ref34.item,
+      how = _ref34.how;
     return /*#__PURE__*/React.createElement("div", {
       key: item.id,
       style: {
@@ -8752,9 +9061,9 @@ function PlantView(props) {
 }
 
 /* Короткая честная сводка по дневнику: как поливали на самом деле против нормы */
-function JournalStats(_ref33) {
-  let entries = _ref33.entries,
-    interval = _ref33.interval;
+function JournalStats(_ref35) {
+  let entries = _ref35.entries,
+    interval = _ref35.interval;
   const waters = entries.filter(e => e.type === "water").map(e => new Date(e.date).getTime()).sort((a, b) => b - a);
   if (waters.length < 3) return null;
   const gaps = [];
@@ -8777,22 +9086,22 @@ function JournalStats(_ref33) {
 
 /* Раньше единственным способом поправить неверное число была кнопка «обновить»,
    которая просто перебрасывала кубик. Теперь правка живёт отдельным слоем. */
-function CareEditor(_ref34) {
-  let plant = _ref34.plant,
-    onSave = _ref34.onSave,
-    onCancel = _ref34.onCancel;
+function CareEditor(_ref36) {
+  let plant = _ref36.plant,
+    onSave = _ref36.onSave,
+    onCancel = _ref36.onCancel;
   const base = plant.care || {};
   const cur = careOf(plant);
-  const _useState167 = useState(() => {
+  const _useState171 = useState(() => {
       const o = {};
       CARE_FIELDS.forEach(f => {
         o[f.k] = cur[f.k] == null ? "" : String(cur[f.k]);
       });
       return o;
     }),
-    _useState168 = _slicedToArray(_useState167, 2),
-    vals = _useState168[0],
-    setVals = _useState168[1];
+    _useState172 = _slicedToArray(_useState171, 2),
+    vals = _useState172[0],
+    setVals = _useState172[1];
   const user = plant.careUser || {};
   return /*#__PURE__*/React.createElement("div", {
     className: "reveal",
@@ -8876,30 +9185,30 @@ function CareEditor(_ref34) {
     onClick: () => onSave(null)
   }, "\u0432\u0435\u0440\u043D\u0443\u0442\u044C \u0432\u0441\u0451 \u043A\u0430\u043A \u0443 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A\u0430")));
 }
-function RepotForm(_ref35) {
-  let plant = _ref35.plant,
-    onSave = _ref35.onSave,
-    onCancel = _ref35.onCancel;
-  const _useState169 = useState(plant.potCm ? String(plant.potCm) : ""),
-    _useState170 = _slicedToArray(_useState169, 2),
-    potCm = _useState170[0],
-    setPotCm = _useState170[1];
-  const _useState171 = useState(plant.potMaterial || "plastic"),
-    _useState172 = _slicedToArray(_useState171, 2),
-    potMaterial = _useState172[0],
-    setPotMaterial = _useState172[1];
-  const _useState173 = useState(plant.drainage !== false),
+function RepotForm(_ref37) {
+  let plant = _ref37.plant,
+    onSave = _ref37.onSave,
+    onCancel = _ref37.onCancel;
+  const _useState173 = useState(plant.potCm ? String(plant.potCm) : ""),
     _useState174 = _slicedToArray(_useState173, 2),
-    drainage = _useState174[0],
-    setDrainage = _useState174[1];
-  const _useState175 = useState(plant.substrate || "universal"),
+    potCm = _useState174[0],
+    setPotCm = _useState174[1];
+  const _useState175 = useState(plant.potMaterial || "plastic"),
     _useState176 = _slicedToArray(_useState175, 2),
-    substrate = _useState176[0],
-    setSubstrate = _useState176[1];
-  const _useState177 = useState(new Date().toISOString().slice(0, 7)),
+    potMaterial = _useState176[0],
+    setPotMaterial = _useState176[1];
+  const _useState177 = useState(plant.drainage !== false),
     _useState178 = _slicedToArray(_useState177, 2),
-    when = _useState178[0],
-    setWhen = _useState178[1];
+    drainage = _useState178[0],
+    setDrainage = _useState178[1];
+  const _useState179 = useState(plant.substrate || "universal"),
+    _useState180 = _slicedToArray(_useState179, 2),
+    substrate = _useState180[0],
+    setSubstrate = _useState180[1];
+  const _useState181 = useState(new Date().toISOString().slice(0, 7)),
+    _useState182 = _slicedToArray(_useState181, 2),
+    when = _useState182[0],
+    setWhen = _useState182[1];
   const step = plant.care && plant.care.potStepCm || 2;
   return /*#__PURE__*/React.createElement("div", {
     className: "reveal",
@@ -8989,63 +9298,63 @@ function RepotForm(_ref35) {
     onClick: onCancel
   }, "\u041E\u0442\u043C\u0435\u043D\u0430")));
 }
-function EditPlant(_ref36) {
-  let plant = _ref36.plant,
-    allPlants = _ref36.allPlants,
-    onSave = _ref36.onSave,
-    onCancel = _ref36.onCancel,
-    showToast = _ref36.showToast;
-  const _useState179 = useState(plant.name),
-    _useState180 = _slicedToArray(_useState179, 2),
-    eName = _useState180[0],
-    setEName = _useState180[1];
-  const _useState181 = useState(plant.nickname || ""),
-    _useState182 = _slicedToArray(_useState181, 2),
-    eNickname = _useState182[0],
-    setENickname = _useState182[1];
-  const _useState183 = useState(plant.ownedSince || ""),
+function EditPlant(_ref38) {
+  let plant = _ref38.plant,
+    allPlants = _ref38.allPlants,
+    onSave = _ref38.onSave,
+    onCancel = _ref38.onCancel,
+    showToast = _ref38.showToast;
+  const _useState183 = useState(plant.name),
     _useState184 = _slicedToArray(_useState183, 2),
-    eOwned = _useState184[0],
-    setEOwned = _useState184[1];
-  const _useState185 = useState(plant.origin || "bought"),
+    eName = _useState184[0],
+    setEName = _useState184[1];
+  const _useState185 = useState(plant.nickname || ""),
     _useState186 = _slicedToArray(_useState185, 2),
-    eOrigin = _useState186[0],
-    setEOrigin = _useState186[1];
-  const _useState187 = useState(plant.parentId || ""),
+    eNickname = _useState186[0],
+    setENickname = _useState186[1];
+  const _useState187 = useState(plant.ownedSince || ""),
     _useState188 = _slicedToArray(_useState187, 2),
-    eParentId = _useState188[0],
-    setEParentId = _useState188[1];
-  const _useState189 = useState(!!plant.lamp),
+    eOwned = _useState188[0],
+    setEOwned = _useState188[1];
+  const _useState189 = useState(plant.origin || "bought"),
     _useState190 = _slicedToArray(_useState189, 2),
-    eLamp = _useState190[0],
-    setELamp = _useState190[1];
+    eOrigin = _useState190[0],
+    setEOrigin = _useState190[1];
+  const _useState191 = useState(plant.parentId || ""),
+    _useState192 = _slicedToArray(_useState191, 2),
+    eParentId = _useState192[0],
+    setEParentId = _useState192[1];
+  const _useState193 = useState(!!plant.lamp),
+    _useState194 = _slicedToArray(_useState193, 2),
+    eLamp = _useState194[0],
+    setELamp = _useState194[1];
   /* Горшок правится здесь, а не только в «Отметить пересадку»: раньше, чтобы
      записать диаметр у давно стоящего растения, приходилось изображать
      пересадку — а она пишет запись в дневник и блокирует подкормки. */
-  const _useState191 = useState(plant.potCm ? String(plant.potCm) : ""),
-    _useState192 = _slicedToArray(_useState191, 2),
-    ePotCm = _useState192[0],
-    setEPotCm = _useState192[1];
-  const _useState193 = useState(plant.potMaterial || "plastic"),
-    _useState194 = _slicedToArray(_useState193, 2),
-    ePotMaterial = _useState194[0],
-    setEPotMaterial = _useState194[1];
-  const _useState195 = useState(plant.drainage !== false),
+  const _useState195 = useState(plant.potCm ? String(plant.potCm) : ""),
     _useState196 = _slicedToArray(_useState195, 2),
-    eDrainage = _useState196[0],
-    setEDrainage = _useState196[1];
-  const _useState197 = useState(plant.substrate || "universal"),
+    ePotCm = _useState196[0],
+    setEPotCm = _useState196[1];
+  const _useState197 = useState(plant.potMaterial || "plastic"),
     _useState198 = _slicedToArray(_useState197, 2),
-    eSubstrate = _useState198[0],
-    setESubstrate = _useState198[1];
-  const _useState199 = useState(null),
+    ePotMaterial = _useState198[0],
+    setEPotMaterial = _useState198[1];
+  const _useState199 = useState(plant.drainage !== false),
     _useState200 = _slicedToArray(_useState199, 2),
-    ePhoto = _useState200[0],
-    setEPhoto = _useState200[1];
-  const _useState201 = useState(""),
+    eDrainage = _useState200[0],
+    setEDrainage = _useState200[1];
+  const _useState201 = useState(plant.substrate || "universal"),
     _useState202 = _slicedToArray(_useState201, 2),
-    pq = _useState202[0],
-    setPq = _useState202[1];
+    eSubstrate = _useState202[0],
+    setESubstrate = _useState202[1];
+  const _useState203 = useState(null),
+    _useState204 = _slicedToArray(_useState203, 2),
+    ePhoto = _useState204[0],
+    setEPhoto = _useState204[1];
+  const _useState205 = useState(""),
+    _useState206 = _slicedToArray(_useState205, 2),
+    pq = _useState206[0],
+    setPq = _useState206[1];
   const fileRef = useRef(null);
   const camRef = useRef(null);
   async function handlePhoto(f) {
@@ -9299,33 +9608,33 @@ function EditPlant(_ref36) {
 }
 
 /* ─────────────────────────  Чат-садовник  ───────────────────────── */
-function ChatView(_ref37) {
-  let plants = _ref37.plants,
-    journal = _ref37.journal,
-    apartment = _ref37.apartment,
-    invText = _ref37.invText,
-    profile = _ref37.profile,
-    messages = _ref37.messages,
-    onMessages = _ref37.onMessages;
-  const _useState203 = useState(""),
-    _useState204 = _slicedToArray(_useState203, 2),
-    input = _useState204[0],
-    setInput = _useState204[1];
-  const _useState205 = useState(false),
-    _useState206 = _slicedToArray(_useState205, 2),
-    busy = _useState206[0],
-    setBusy = _useState206[1];
-  const _useState207 = useState(null),
+function ChatView(_ref39) {
+  let plants = _ref39.plants,
+    journal = _ref39.journal,
+    apartment = _ref39.apartment,
+    invText = _ref39.invText,
+    profile = _ref39.profile,
+    messages = _ref39.messages,
+    onMessages = _ref39.onMessages;
+  const _useState207 = useState(""),
     _useState208 = _slicedToArray(_useState207, 2),
-    pendingImage = _useState208[0],
-    setPendingImage = _useState208[1];
+    input = _useState208[0],
+    setInput = _useState208[1];
+  const _useState209 = useState(false),
+    _useState210 = _slicedToArray(_useState209, 2),
+    busy = _useState210[0],
+    setBusy = _useState210[1];
+  const _useState211 = useState(null),
+    _useState212 = _slicedToArray(_useState211, 2),
+    pendingImage = _useState212[0],
+    setPendingImage = _useState212[1];
   const fileRef = useRef(null);
   const camRef = useRef(null);
   const srcChoose = useRef(null);
-  const _useState209 = useState(false),
-    _useState210 = _slicedToArray(_useState209, 2),
-    srcOpen = _useState210[0],
-    setSrcOpen = _useState210[1];
+  const _useState213 = useState(false),
+    _useState214 = _slicedToArray(_useState213, 2),
+    srcOpen = _useState214[0],
+    setSrcOpen = _useState214[1];
   const bottomRef = useRef(null);
   useEffect(() => {
     if (bottomRef.current) bottomRef.current.scrollIntoView({
@@ -9355,7 +9664,7 @@ function ChatView(_ref37) {
     setBusy(true);
     try {
       const photoRule = " Если человек прислал фото растения — внимательно осмотри его. Помни: перелив и пересушка на фото выглядят одинаково, поэтому сначала попроси проверить руками (вес горшка, земля на 5 см вглубь, вода в поддоне). Дозировок препаратов не называй — только действующее вещество, доза по этикетке.";
-      const context = plants.length > 0 ? "\u0422\u044B \u2014 \u0442\u0451\u043F\u043B\u044B\u0439, \u0432\u043D\u0438\u043C\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0439 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A-\u043A\u043E\u043D\u0441\u0443\u043B\u044C\u0442\u0430\u043D\u0442 \u0434\u043E\u043C\u0430\u0448\u043D\u0435\u0433\u043E \u0441\u0430\u0434\u0430. \u041E\u0442\u0432\u0435\u0447\u0430\u0439 \u043F\u043E-\u0440\u0443\u0441\u0441\u043A\u0438, \u0434\u0440\u0443\u0436\u0435\u043B\u044E\u0431\u043D\u043E \u0438 \u043F\u043E \u0434\u0435\u043B\u0443, \u0431\u0435\u0437 \u043B\u0438\u0448\u043D\u0435\u0439 \u0432\u043E\u0434\u044B. \u0421\u0435\u0433\u043E\u0434\u043D\u044F ".concat(new Date().toLocaleDateString("ru-RU"), ", \u0441\u0435\u0439\u0447\u0430\u0441 ").concat(seasonLabel(profile)).concat(profile && profile.heatingOn ? ", отопление включено" : "", ". \u041F\u0440\u043E \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u0443: ").concat(apartment).concat(invText ? " " + invText + " Советуя средства и грунты, в первую очередь опирайся на то, что уже есть в хозяйстве." : "", "\n\u0412\u043E\u0442 \u0441\u0430\u0434, \u043E \u043A\u043E\u0442\u043E\u0440\u043E\u043C \u0438\u0434\u0451\u0442 \u0440\u0435\u0447\u044C:\n").concat(buildGardenContext(plants, journal, profile), "\n\n\u041E\u0442\u0432\u0435\u0447\u0430\u0439 \u0441 \u0443\u0447\u0451\u0442\u043E\u043C \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0445 \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0439 \u0441\u0430\u0434\u0430, \u0438\u0445 \u043C\u0435\u0441\u0442, \u0441\u0432\u0435\u0442\u0430 \u0432 \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u0435 \u0438 \u0438\u0441\u0442\u043E\u0440\u0438\u0438.").concat(photoRule) : "\u0422\u044B \u2014 \u0442\u0451\u043F\u043B\u044B\u0439 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A-\u043A\u043E\u043D\u0441\u0443\u043B\u044C\u0442\u0430\u043D\u0442. \u041F\u0440\u043E \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u0443: ".concat(apartment, " \u0421\u0430\u0434 \u043F\u043E\u043A\u0430 \u043F\u0443\u0441\u0442, \u043E\u0442\u0432\u0435\u0447\u0430\u0439 \u043F\u0440\u0430\u043A\u0442\u0438\u0447\u043D\u044B\u043C\u0438 \u0441\u043E\u0432\u0435\u0442\u0430\u043C\u0438 \u043F\u043E-\u0440\u0443\u0441\u0441\u043A\u0438 \u0441 \u0443\u0447\u0451\u0442\u043E\u043C \u0443\u0441\u043B\u043E\u0432\u0438\u0439 \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u044B.").concat(photoRule);
+      const context = plants.length > 0 ? "\u0422\u044B \u2014 \u0442\u0451\u043F\u043B\u044B\u0439, \u0432\u043D\u0438\u043C\u0430\u0442\u0435\u043B\u044C\u043D\u044B\u0439 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A-\u043A\u043E\u043D\u0441\u0443\u043B\u044C\u0442\u0430\u043D\u0442 \u0434\u043E\u043C\u0430\u0448\u043D\u0435\u0433\u043E \u0441\u0430\u0434\u0430. \u041E\u0442\u0432\u0435\u0447\u0430\u0439 \u043F\u043E-\u0440\u0443\u0441\u0441\u043A\u0438, \u0434\u0440\u0443\u0436\u0435\u043B\u044E\u0431\u043D\u043E \u0438 \u043F\u043E \u0434\u0435\u043B\u0443, \u0431\u0435\u0437 \u043B\u0438\u0448\u043D\u0435\u0439 \u0432\u043E\u0434\u044B. \u0421\u0435\u0433\u043E\u0434\u043D\u044F ".concat(new Date().toLocaleDateString("ru-RU"), ", \u0441\u0435\u0439\u0447\u0430\u0441 ").concat(seasonLabel(profile)).concat(profile && profile.heatingOn ? ", отопление включено" : "", ". \u041F\u0440\u043E \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u0443: ").concat(apartment).concat(invText ? " " + invText + " Советуя средства и грунты, в первую очередь опирайся на то, что уже есть в хозяйстве." : "", "\n\u0412\u043E\u0442 \u0441\u0430\u0434, \u043E \u043A\u043E\u0442\u043E\u0440\u043E\u043C \u0438\u0434\u0451\u0442 \u0440\u0435\u0447\u044C:\n").concat(buildGardenContext(plants, journal, profile, outbreaks), "\n\n\u041E\u0442\u0432\u0435\u0447\u0430\u0439 \u0441 \u0443\u0447\u0451\u0442\u043E\u043C \u043A\u043E\u043D\u043A\u0440\u0435\u0442\u043D\u044B\u0445 \u0440\u0430\u0441\u0442\u0435\u043D\u0438\u0439 \u0441\u0430\u0434\u0430, \u0438\u0445 \u043C\u0435\u0441\u0442, \u0441\u0432\u0435\u0442\u0430 \u0432 \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u0435 \u0438 \u0438\u0441\u0442\u043E\u0440\u0438\u0438.").concat(photoRule) : "\u0422\u044B \u2014 \u0442\u0451\u043F\u043B\u044B\u0439 \u0441\u0430\u0434\u043E\u0432\u043D\u0438\u043A-\u043A\u043E\u043D\u0441\u0443\u043B\u044C\u0442\u0430\u043D\u0442. \u041F\u0440\u043E \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u0443: ".concat(apartment, " \u0421\u0430\u0434 \u043F\u043E\u043A\u0430 \u043F\u0443\u0441\u0442, \u043E\u0442\u0432\u0435\u0447\u0430\u0439 \u043F\u0440\u0430\u043A\u0442\u0438\u0447\u043D\u044B\u043C\u0438 \u0441\u043E\u0432\u0435\u0442\u0430\u043C\u0438 \u043F\u043E-\u0440\u0443\u0441\u0441\u043A\u0438 \u0441 \u0443\u0447\u0451\u0442\u043E\u043C \u0443\u0441\u043B\u043E\u0432\u0438\u0439 \u043A\u0432\u0430\u0440\u0442\u0438\u0440\u044B.").concat(photoRule);
       const apiMessages = [{
         role: "user",
         content: context
@@ -9579,25 +9888,25 @@ function ChatView(_ref37) {
 }
 
 /* ─────────────────────────  Вишлист  ───────────────────────── */
-function WishlistView(_ref38) {
-  let wishlist = _ref38.wishlist,
-    plants = _ref38.plants,
-    journal = _ref38.journal,
-    apartment = _ref38.apartment,
-    profile = _ref38.profile,
-    onAdd = _ref38.onAdd,
-    onRemove = _ref38.onRemove,
-    onVerdict = _ref38.onVerdict,
-    onPlant = _ref38.onPlant,
-    showToast = _ref38.showToast;
-  const _useState211 = useState(""),
-    _useState212 = _slicedToArray(_useState211, 2),
-    name = _useState212[0],
-    setName = _useState212[1];
-  const _useState213 = useState(null),
-    _useState214 = _slicedToArray(_useState213, 2),
-    busyId = _useState214[0],
-    setBusyId = _useState214[1];
+function WishlistView(_ref40) {
+  let wishlist = _ref40.wishlist,
+    plants = _ref40.plants,
+    journal = _ref40.journal,
+    apartment = _ref40.apartment,
+    profile = _ref40.profile,
+    onAdd = _ref40.onAdd,
+    onRemove = _ref40.onRemove,
+    onVerdict = _ref40.onVerdict,
+    onPlant = _ref40.onPlant,
+    showToast = _ref40.showToast;
+  const _useState215 = useState(""),
+    _useState216 = _slicedToArray(_useState215, 2),
+    name = _useState216[0],
+    setName = _useState216[1];
+  const _useState217 = useState(null),
+    _useState218 = _slicedToArray(_useState217, 2),
+    busyId = _useState218[0],
+    setBusyId = _useState218[1];
   const fitColor = {
     good: C.sageText,
     maybe: C.sunText,
@@ -9757,26 +10066,26 @@ function WishlistView(_ref38) {
 }
 
 /* ─────────────────────────  Хозяйство: Нужное + Инвентарь  ───────────────────────── */
-function SuppliesView(_ref39) {
-  let needs = _ref39.needs,
-    inventory = _ref39.inventory,
-    plants = _ref39.plants,
-    journal = _ref39.journal,
-    apartment = _ref39.apartment,
-    invText = _ref39.invText,
-    profile = _ref39.profile,
-    onAddNeed = _ref39.onAddNeed,
-    onBuy = _ref39.onBuy,
-    onRemoveNeed = _ref39.onRemoveNeed,
-    onAddInv = _ref39.onAddInv,
-    onPatchInv = _ref39.onPatchInv,
-    onRemoveInv = _ref39.onRemoveInv,
-    onOpenPlant = _ref39.onOpenPlant,
-    showToast = _ref39.showToast;
-  const _useState215 = useState("needs"),
-    _useState216 = _slicedToArray(_useState215, 2),
-    tab = _useState216[0],
-    setTab = _useState216[1];
+function SuppliesView(_ref41) {
+  let needs = _ref41.needs,
+    inventory = _ref41.inventory,
+    plants = _ref41.plants,
+    journal = _ref41.journal,
+    apartment = _ref41.apartment,
+    invText = _ref41.invText,
+    profile = _ref41.profile,
+    onAddNeed = _ref41.onAddNeed,
+    onBuy = _ref41.onBuy,
+    onRemoveNeed = _ref41.onRemoveNeed,
+    onAddInv = _ref41.onAddInv,
+    onPatchInv = _ref41.onPatchInv,
+    onRemoveInv = _ref41.onRemoveInv,
+    onOpenPlant = _ref41.onOpenPlant,
+    showToast = _ref41.showToast;
+  const _useState219 = useState("needs"),
+    _useState220 = _slicedToArray(_useState219, 2),
+    tab = _useState220[0],
+    setTab = _useState220[1];
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 18,
@@ -9818,30 +10127,30 @@ function SuppliesView(_ref39) {
     onAddNeed: onAddNeed
   }));
 }
-function NeedsView(_ref40) {
-  let needs = _ref40.needs,
-    plants = _ref40.plants,
-    journal = _ref40.journal,
-    apartment = _ref40.apartment,
-    invText = _ref40.invText,
-    profile = _ref40.profile,
-    onAdd = _ref40.onAdd,
-    onBuy = _ref40.onBuy,
-    onRemove = _ref40.onRemove,
-    onOpenPlant = _ref40.onOpenPlant,
-    showToast = _ref40.showToast;
-  const _useState217 = useState(""),
-    _useState218 = _slicedToArray(_useState217, 2),
-    text = _useState218[0],
-    setText = _useState218[1];
-  const _useState219 = useState(false),
-    _useState220 = _slicedToArray(_useState219, 2),
-    aiBusy = _useState220[0],
-    setAiBusy = _useState220[1];
+function NeedsView(_ref42) {
+  let needs = _ref42.needs,
+    plants = _ref42.plants,
+    journal = _ref42.journal,
+    apartment = _ref42.apartment,
+    invText = _ref42.invText,
+    profile = _ref42.profile,
+    onAdd = _ref42.onAdd,
+    onBuy = _ref42.onBuy,
+    onRemove = _ref42.onRemove,
+    onOpenPlant = _ref42.onOpenPlant,
+    showToast = _ref42.showToast;
   const _useState221 = useState(""),
     _useState222 = _slicedToArray(_useState221, 2),
-    order = _useState222[0],
-    setOrder = _useState222[1];
+    text = _useState222[0],
+    setText = _useState222[1];
+  const _useState223 = useState(false),
+    _useState224 = _slicedToArray(_useState223, 2),
+    aiBusy = _useState224[0],
+    setAiBusy = _useState224[1];
+  const _useState225 = useState(""),
+    _useState226 = _slicedToArray(_useState225, 2),
+    order = _useState226[0],
+    setOrder = _useState226[1];
   const general = needs.filter(n => !n.plantId || !plants.find(p => p.id === n.plantId));
   const byPlant = plants.map(p => ({
     p,
@@ -9863,8 +10172,8 @@ function NeedsView(_ref40) {
     }
     setAiBusy(false);
   }
-  const Row = _ref41 => {
-    let n = _ref41.n;
+  const Row = _ref43 => {
+    let n = _ref43.n;
     return /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
@@ -10005,9 +10314,9 @@ function NeedsView(_ref40) {
   }, "\u0414\u043B\u044F \u0441\u0430\u0434\u0430 \u0432 \u0446\u0435\u043B\u043E\u043C"), general.map(n => /*#__PURE__*/React.createElement(Row, {
     key: n.id,
     n: n
-  }))), byPlant.map(_ref42 => {
-    let p = _ref42.p,
-      items = _ref42.items;
+  }))), byPlant.map(_ref44 => {
+    let p = _ref44.p,
+      items = _ref44.items;
     return /*#__PURE__*/React.createElement("div", {
       key: p.id,
       style: {
@@ -10038,68 +10347,68 @@ function NeedsView(_ref40) {
     })));
   })));
 }
-function InventoryView(_ref43) {
-  let inventory = _ref43.inventory,
-    plants = _ref43.plants,
-    journal = _ref43.journal,
-    apartment = _ref43.apartment,
-    profile = _ref43.profile,
-    onAdd = _ref43.onAdd,
-    onPatch = _ref43.onPatch,
-    onRemove = _ref43.onRemove,
-    onOpenPlant = _ref43.onOpenPlant,
-    onAddNeed = _ref43.onAddNeed,
-    showToast = _ref43.showToast;
-  const _useState223 = useState(""),
-    _useState224 = _slicedToArray(_useState223, 2),
-    name = _useState224[0],
-    setName = _useState224[1];
-  const _useState225 = useState("feed"),
-    _useState226 = _slicedToArray(_useState225, 2),
-    cat = _useState226[0],
-    setCat = _useState226[1];
+function InventoryView(_ref45) {
+  let inventory = _ref45.inventory,
+    plants = _ref45.plants,
+    journal = _ref45.journal,
+    apartment = _ref45.apartment,
+    profile = _ref45.profile,
+    onAdd = _ref45.onAdd,
+    onPatch = _ref45.onPatch,
+    onRemove = _ref45.onRemove,
+    onOpenPlant = _ref45.onOpenPlant,
+    onAddNeed = _ref45.onAddNeed,
+    showToast = _ref45.showToast;
   const _useState227 = useState(""),
     _useState228 = _slicedToArray(_useState227, 2),
-    note = _useState228[0],
-    setNote = _useState228[1];
-  const _useState229 = useState(""),
+    name = _useState228[0],
+    setName = _useState228[1];
+  const _useState229 = useState("feed"),
     _useState230 = _slicedToArray(_useState229, 2),
-    uses = _useState230[0],
-    setUses = _useState230[1];
-  const _useState231 = useState(false),
+    cat = _useState230[0],
+    setCat = _useState230[1];
+  const _useState231 = useState(""),
     _useState232 = _slicedToArray(_useState231, 2),
-    adding = _useState232[0],
-    setAdding = _useState232[1];
-  const _useState233 = useState(null),
+    note = _useState232[0],
+    setNote = _useState232[1];
+  const _useState233 = useState(""),
     _useState234 = _slicedToArray(_useState233, 2),
-    busyId = _useState234[0],
-    setBusyId = _useState234[1];
-  const _useState235 = useState(null),
+    uses = _useState234[0],
+    setUses = _useState234[1];
+  const _useState235 = useState(false),
     _useState236 = _slicedToArray(_useState235, 2),
-    editId = _useState236[0],
-    setEditId = _useState236[1];
+    adding = _useState236[0],
+    setAdding = _useState236[1];
   const _useState237 = useState(null),
     _useState238 = _slicedToArray(_useState237, 2),
-    openId = _useState238[0],
-    setOpenId = _useState238[1];
+    busyId = _useState238[0],
+    setBusyId = _useState238[1];
+  const _useState239 = useState(null),
+    _useState240 = _slicedToArray(_useState239, 2),
+    editId = _useState240[0],
+    setEditId = _useState240[1];
+  const _useState241 = useState(null),
+    _useState242 = _slicedToArray(_useState241, 2),
+    openId = _useState242[0],
+    setOpenId = _useState242[1];
   /* Категории сворачиваются — так было в первой версии и потерялось при
      переписывании. Но раскрыты по умолчанию: свёрнутая полка выглядела пустой. */
-  const _useState239 = useState({}),
-    _useState240 = _slicedToArray(_useState239, 2),
-    closedCats = _useState240[0],
-    setClosedCats = _useState240[1];
-  const _useState241 = useState(""),
-    _useState242 = _slicedToArray(_useState241, 2),
-    eName = _useState242[0],
-    setEName = _useState242[1];
-  const _useState243 = useState(""),
+  const _useState243 = useState({}),
     _useState244 = _slicedToArray(_useState243, 2),
-    eNote = _useState244[0],
-    setENote = _useState244[1];
-  const _useState245 = useState("other"),
+    closedCats = _useState244[0],
+    setClosedCats = _useState244[1];
+  const _useState245 = useState(""),
     _useState246 = _slicedToArray(_useState245, 2),
-    eCat = _useState246[0],
-    setECat = _useState246[1];
+    eName = _useState246[0],
+    setEName = _useState246[1];
+  const _useState247 = useState(""),
+    _useState248 = _slicedToArray(_useState247, 2),
+    eNote = _useState248[0],
+    setENote = _useState248[1];
+  const _useState249 = useState("other"),
+    _useState250 = _slicedToArray(_useState249, 2),
+    eCat = _useState250[0],
+    setECat = _useState250[1];
   function add() {
     if (!name.trim()) return;
     onAdd(name, cat, note, uses);
@@ -10268,9 +10577,9 @@ function InventoryView(_ref43) {
       fontSize: 15,
       marginTop: 6
     }
-  }, "\u041F\u043E\u043B\u043A\u0430 \u043F\u043E\u043A\u0430 \u043F\u0443\u0441\u0442\u0430. \u0412\u0441\u0451 \u043A\u0443\u043F\u043B\u0435\u043D\u043D\u043E\u0435 \u0438\u0437 \xAB\u041D\u0443\u0436\u043D\u043E\u0433\u043E\xBB \u043F\u043E\u044F\u0432\u0438\u0442\u0441\u044F \u0437\u0434\u0435\u0441\u044C \u0441\u0430\u043C\u043E.")) : groups.map(_ref44 => {
-    let c = _ref44.c,
-      items = _ref44.items;
+  }, "\u041F\u043E\u043B\u043A\u0430 \u043F\u043E\u043A\u0430 \u043F\u0443\u0441\u0442\u0430. \u0412\u0441\u0451 \u043A\u0443\u043F\u043B\u0435\u043D\u043D\u043E\u0435 \u0438\u0437 \xAB\u041D\u0443\u0436\u043D\u043E\u0433\u043E\xBB \u043F\u043E\u044F\u0432\u0438\u0442\u0441\u044F \u0437\u0434\u0435\u0441\u044C \u0441\u0430\u043C\u043E.")) : groups.map(_ref46 => {
+    let c = _ref46.c,
+      items = _ref46.items;
     const catOpen = !closedCats[c.v];
     return /*#__PURE__*/React.createElement("div", {
       key: c.v,
@@ -10631,12 +10940,12 @@ function paintPaper(ctx, W, H) {
   ctx.fillStyle = "#f7f6ef";
   ctx.fillRect(0, 0, W, H);
   const spots = [["#a8c39a", W * 0.1, H * 0.06, W * 0.42], ["#dce6d5", W * 0.85, H * 0.1, W * 0.4], ["#f0dfe4", W * 0.9, H * 0.9, W * 0.36], ["#dde8ec", W * 0.15, H * 0.95, W * 0.4]];
-  spots.forEach(_ref45 => {
-    let _ref46 = _slicedToArray(_ref45, 4),
-      col = _ref46[0],
-      x = _ref46[1],
-      y = _ref46[2],
-      r = _ref46[3];
+  spots.forEach(_ref47 => {
+    let _ref48 = _slicedToArray(_ref47, 4),
+      col = _ref48[0],
+      x = _ref48[1],
+      y = _ref48[2],
+      r = _ref48[3];
     const g = ctx.createRadialGradient(x, y, 0, x, y, r);
     g.addColorStop(0, col);
     g.addColorStop(1, "rgba(255,255,255,0)");
@@ -10963,12 +11272,12 @@ async function sharePostcard(cv, filename, showToast) {
 }
 
 /* ─────────────────────────  Статистика сада  ───────────────────────── */
-function StatsView(_ref47) {
-  let plants = _ref47.plants,
-    archived = _ref47.archived,
-    journal = _ref47.journal,
-    profile = _ref47.profile,
-    onOpen = _ref47.onOpen;
+function StatsView(_ref49) {
+  let plants = _ref49.plants,
+    archived = _ref49.archived,
+    journal = _ref49.journal,
+    profile = _ref49.profile,
+    onOpen = _ref49.onOpen;
   if (plants.length === 0) {
     return /*#__PURE__*/React.createElement("div", {
       style: {
@@ -11055,9 +11364,9 @@ function StatsView(_ref47) {
     spotCount[s] = (spotCount[s] || 0) + 1;
   });
   const topSpot = Object.keys(spotCount).map(k => [k, spotCount[k]]).sort((a, b) => b[1] - a[1])[0];
-  const Tile = _ref48 => {
-    let value = _ref48.value,
-      label = _ref48.label;
+  const Tile = _ref50 => {
+    let value = _ref50.value,
+      label = _ref50.label;
     return /*#__PURE__*/React.createElement("div", {
       style: {
         background: C.card,
@@ -11271,11 +11580,11 @@ function ProfileSetup(props) {
     storageStats = props.storageStats,
     onOpenPlant = props.onOpenPlant,
     showToast = props.showToast;
-  const _useState247 = useState("flat"),
-    _useState248 = _slicedToArray(_useState247, 2),
-    tab = _useState248[0],
-    setTab = _useState248[1];
-  const _useState249 = useState(profile && profile.spots && profile.spots.length > 0 ? profile.spots.map(s => ({
+  const _useState251 = useState("flat"),
+    _useState252 = _slicedToArray(_useState251, 2),
+    tab = _useState252[0],
+    setTab = _useState252[1];
+  const _useState253 = useState(profile && profile.spots && profile.spots.length > 0 ? profile.spots.map(s => ({
       id: s.id || uid(),
       label: s.label || "",
       orientation: s.orientation || "south",
@@ -11292,77 +11601,77 @@ function ProfileSetup(props) {
       glazed: null,
       balconyKind: null
     }]),
-    _useState250 = _slicedToArray(_useState249, 2),
-    spots = _useState250[0],
-    setSpots = _useState250[1];
-  const _useState251 = useState(profile && profile.notes || ""),
-    _useState252 = _slicedToArray(_useState251, 2),
-    notes = _useState252[0],
-    setNotes = _useState252[1];
-  const _useState253 = useState(profile && profile.city || ""),
     _useState254 = _slicedToArray(_useState253, 2),
-    city = _useState254[0],
-    setCity = _useState254[1];
-  const _useState255 = useState(profile && profile.person || ""),
+    spots = _useState254[0],
+    setSpots = _useState254[1];
+  const _useState255 = useState(profile && profile.notes || ""),
     _useState256 = _slicedToArray(_useState255, 2),
-    person = _useState256[0],
-    setPerson = _useState256[1];
-  const _useState257 = useState(profile && profile.water || ""),
+    notes = _useState256[0],
+    setNotes = _useState256[1];
+  const _useState257 = useState(profile && profile.city || ""),
     _useState258 = _slicedToArray(_useState257, 2),
-    waterKind = _useState258[0],
-    setWaterKind = _useState258[1];
-  const _useState259 = useState(!!(profile && profile.heatingOn)),
+    city = _useState258[0],
+    setCity = _useState258[1];
+  const _useState259 = useState(profile && profile.person || ""),
     _useState260 = _slicedToArray(_useState259, 2),
-    heatingOn = _useState260[0],
-    setHeatingOn = _useState260[1];
-  const _useState261 = useState(profile && profile.careDays || []),
+    person = _useState260[0],
+    setPerson = _useState260[1];
+  const _useState261 = useState(profile && profile.water || ""),
     _useState262 = _slicedToArray(_useState261, 2),
-    careDays = _useState262[0],
-    setCareDays = _useState262[1];
-  const _useState263 = useState(profile && profile.notifyHour != null ? profile.notifyHour : 9),
+    waterKind = _useState262[0],
+    setWaterKind = _useState262[1];
+  const _useState263 = useState(!!(profile && profile.heatingOn)),
     _useState264 = _slicedToArray(_useState263, 2),
-    notifyHour = _useState264[0],
-    setNotifyHour = _useState264[1];
-  const _useState265 = useState(profile && profile.theme || "auto"),
+    heatingOn = _useState264[0],
+    setHeatingOn = _useState264[1];
+  const _useState265 = useState(profile && profile.careDays || []),
     _useState266 = _slicedToArray(_useState265, 2),
-    theme = _useState266[0],
-    setTheme = _useState266[1];
-  const _useState267 = useState(false),
+    careDays = _useState266[0],
+    setCareDays = _useState266[1];
+  const _useState267 = useState(profile && profile.notifyHour != null ? profile.notifyHour : 9),
     _useState268 = _slicedToArray(_useState267, 2),
-    cityBusy = _useState268[0],
-    setCityBusy = _useState268[1];
-  const _useState269 = useState(null),
+    notifyHour = _useState268[0],
+    setNotifyHour = _useState268[1];
+  const _useState269 = useState(profile && profile.theme || "auto"),
     _useState270 = _slicedToArray(_useState269, 2),
-    cityCheck = _useState270[0],
-    setCityCheck = _useState270[1];
+    theme = _useState270[0],
+    setTheme = _useState270[1];
   const _useState271 = useState(false),
     _useState272 = _slicedToArray(_useState271, 2),
-    auditBusy = _useState272[0],
-    setAuditBusy = _useState272[1];
+    cityBusy = _useState272[0],
+    setCityBusy = _useState272[1];
   const _useState273 = useState(null),
     _useState274 = _slicedToArray(_useState273, 2),
-    audit = _useState274[0],
-    setAudit = _useState274[1];
-  const _useState275 = useState({}),
+    cityCheck = _useState274[0],
+    setCityCheck = _useState274[1];
+  const _useState275 = useState(false),
     _useState276 = _slicedToArray(_useState275, 2),
-    moved = _useState276[0],
-    setMoved = _useState276[1];
-  const _useState277 = useState(""),
+    auditBusy = _useState276[0],
+    setAuditBusy = _useState276[1];
+  const _useState277 = useState(null),
     _useState278 = _slicedToArray(_useState277, 2),
-    connCode = _useState278[0],
-    setConnCode = _useState278[1];
-  const _useState279 = useState(false),
+    audit = _useState278[0],
+    setAudit = _useState278[1];
+  const _useState279 = useState({}),
     _useState280 = _slicedToArray(_useState279, 2),
-    copied = _useState280[0],
-    setCopied = _useState280[1];
-  const _useState281 = useState(false),
+    moved = _useState280[0],
+    setMoved = _useState280[1];
+  const _useState281 = useState(""),
     _useState282 = _slicedToArray(_useState281, 2),
-    showStorage = _useState282[0],
-    setShowStorage = _useState282[1];
-  const _useState283 = useState(null),
+    connCode = _useState282[0],
+    setConnCode = _useState282[1];
+  const _useState283 = useState(false),
     _useState284 = _slicedToArray(_useState283, 2),
-    askLocal = _useState284[0],
-    setAskLocal = _useState284[1];
+    copied = _useState284[0],
+    setCopied = _useState284[1];
+  const _useState285 = useState(false),
+    _useState286 = _slicedToArray(_useState285, 2),
+    showStorage = _useState286[0],
+    setShowStorage = _useState286[1];
+  const _useState287 = useState(null),
+    _useState288 = _slicedToArray(_useState287, 2),
+    askLocal = _useState288[0],
+    setAskLocal = _useState288[1];
   const wpRef = useRef(null);
   async function checkCity() {
     const c = city.trim();
@@ -11762,9 +12071,9 @@ function ProfileSetup(props) {
   }, {
     d: 0,
     t: "Вс"
-  }].map(_ref49 => {
-    let d = _ref49.d,
-      t = _ref49.t;
+  }].map(_ref51 => {
+    let d = _ref51.d,
+      t = _ref51.t;
     return /*#__PURE__*/React.createElement(Chip, {
       key: d,
       small: true,
@@ -12033,10 +12342,10 @@ function ProfileSetup(props) {
     style: {
       marginTop: 10
     }
-  }, storageStats.byPlant.slice(0, 12).map(_ref50 => {
-    let p = _ref50.p,
-      bytes = _ref50.bytes,
-      shots = _ref50.shots;
+  }, storageStats.byPlant.slice(0, 12).map(_ref52 => {
+    let p = _ref52.p,
+      bytes = _ref52.bytes,
+      shots = _ref52.shots;
     return /*#__PURE__*/React.createElement("button", {
       key: p.id,
       onClick: () => onOpenPlant(p.id),
@@ -12234,33 +12543,282 @@ function ProfileSetup(props) {
 }
 
 /* ─────────────────────────  Режим «отпуск»  ───────────────────────── */
-function VacationView(_ref51) {
-  let plants = _ref51.plants,
-    profile = _ref51.profile,
-    apartment = _ref51.apartment,
-    weather = _ref51.weather,
-    onBack = _ref51.onBack,
-    showToast = _ref51.showToast;
-  const _useState285 = useState(null),
-    _useState286 = _slicedToArray(_useState285, 2),
-    prep = _useState286[0],
-    setPrep = _useState286[1];
-  const _useState287 = useState(false),
-    _useState288 = _slicedToArray(_useState287, 2),
-    prepBusy = _useState288[0],
-    setPrepBusy = _useState288[1];
-  const _useState289 = useState(false),
+/* ─────────────────────────  Здоровье сада  ─────────────────────────
+   Вспышки живут здесь целиком: на «Сегодня» показывается только то,
+   что требует действия именно сегодня. Никаких напоминаний осмотреть —
+   в этот раздел заходят сами. */
+function HealthView(_ref53) {
+  let outbreaks = _ref53.outbreaks,
+    plants = _ref53.plants,
+    onOpen = _ref53.onOpen,
+    onBack = _ref53.onBack;
+  const byId = id => (plants || []).find(p => p.id === id);
+  const nameOf = id => {
+    const p = byId(id);
+    return p ? p.nickname || p.name : "растение";
+  };
+  const live = activeOutbreaks(outbreaks);
+  const past = (outbreaks || []).filter(o => o.status !== "active").sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+  const yearAgo = Date.now() - 365 * 86400000;
+  const lastYear = past.filter(o => new Date(o.startedAt).getTime() > yearAgo);
+  const tally = {};
+  lastYear.forEach(o => {
+    tally[o.pest] = (tally[o.pest] || 0) + 1;
+  });
+  const tallyList = Object.keys(tally).sort((a, b) => tally[b] - tally[a]);
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      maxWidth: 640
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onBack,
+    style: {
+      ...sans,
+      background: "none",
+      border: "none",
+      color: C.moss,
+      cursor: "pointer",
+      fontSize: 15,
+      padding: "8px 0",
+      marginBottom: 12,
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      minHeight: 44
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "back",
+    size: 17
+  }), " \u043D\u0430\u0437\u0430\u0434"), /*#__PURE__*/React.createElement("h2", {
+    style: {
+      ...serif,
+      fontWeight: 400,
+      fontSize: 26,
+      margin: "0 0 8px",
+      letterSpacing: "-0.02em",
+      color: C.ink
+    }
+  }, "\u0417\u0434\u043E\u0440\u043E\u0432\u044C\u0435 \u0441\u0430\u0434\u0430"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...sans,
+      fontSize: 14,
+      color: C.moss,
+      margin: "0 0 18px",
+      lineHeight: 1.55
+    }
+  }, "\u0412\u0440\u0435\u0434\u0438\u0442\u0435\u043B\u0438 \u0440\u0430\u0441\u0441\u0435\u043B\u044F\u044E\u0442\u0441\u044F \u043F\u043E \u043C\u0435\u0441\u0442\u0443, \u043F\u043E\u044D\u0442\u043E\u043C\u0443 \u043A\u0443\u0440\u0441 \u0437\u0434\u0435\u0441\u044C \u043E\u0431\u0449\u0438\u0439 \u043D\u0430 \u0432\u0441\u044E \u0437\u043E\u043D\u0443: \u043E\u0434\u043D\u0430 \u0434\u0430\u0442\u0430 \u043E\u0431\u0440\u0430\u0431\u043E\u0442\u043A\u0438 \u043D\u0430 \u0432\u0441\u0435\u0445, \u0438 \u0432\u0438\u0434\u043D\u043E, \u043A\u043E\u0433\u043E \u043F\u0440\u043E\u043F\u0443\u0441\u0442\u0438\u043B\u0438 \u2014 \u0438\u043C\u0435\u043D\u043D\u043E \u043E\u0442 \u043F\u0440\u043E\u043F\u0443\u0449\u0435\u043D\u043D\u043E\u0433\u043E \u0441\u043E\u0441\u0435\u0434\u0430 \u0432\u0440\u0435\u0434\u0438\u0442\u0435\u043B\u044C \u0438 \u0432\u043E\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u0442\u0441\u044F."), live.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: "center",
+      padding: "26px 20px"
+    }
+  }, /*#__PURE__*/React.createElement(SoftBlob, {
+    size: 96,
+    color: C.sageSoft
+  }), /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...serif,
+      fontStyle: "italic",
+      color: C.sageText,
+      fontSize: 15,
+      marginTop: 6
+    }
+  }, "\u0421\u0435\u0439\u0447\u0430\u0441 \u043D\u0438\u043A\u0442\u043E \u043D\u0435 \u043B\u0435\u0447\u0438\u0442\u0441\u044F. \u0425\u043E\u0440\u043E\u0448\u0430\u044F \u043D\u043E\u0432\u043E\u0441\u0442\u044C.")) : live.map(o => {
+    const doneRounds = (o.rounds || []).length;
+    const sickOnes = (o.members || []).filter(m => m.role === "infected" && !m.clearedAt);
+    const watchOnes = (o.members || []).filter(m => m.role === "watch" && !m.clearedAt);
+    const missed = missedInLastRound(o);
+    return /*#__PURE__*/React.createElement("div", {
+      key: o.id,
+      style: {
+        marginBottom: 16,
+        background: C.card,
+        border: "1px solid ".concat(C.blossomText),
+        borderRadius: R.lg,
+        padding: 16
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        marginBottom: 6,
+        flexWrap: "wrap"
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "bandage",
+      size: 17,
+      color: C.blossomText
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        ...serif,
+        fontSize: 19,
+        color: C.ink,
+        flex: 1
+      }
+    }, pest(o.pest).t), /*#__PURE__*/React.createElement("span", {
+      style: {
+        ...sans,
+        fontSize: 12.5,
+        color: C.sageText
+      }
+    }, o.zone)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 5,
+        marginBottom: 8
+      }
+    }, Array.from({
+      length: o.roundsPlanned || 3
+    }).map((_, i) => /*#__PURE__*/React.createElement("span", {
+      key: i,
+      style: {
+        width: 26,
+        height: 6,
+        borderRadius: 999,
+        background: doneRounds > i ? C.moss : C.line
+      }
+    })), /*#__PURE__*/React.createElement("span", {
+      style: {
+        ...sans,
+        fontSize: 12.5,
+        color: C.sageText,
+        marginLeft: 6
+      }
+    }, doneRounds, " \u0438\u0437 ", o.roundsPlanned, ", \u0438\u043D\u0442\u0435\u0440\u0432\u0430\u043B ", o.gap, " \u0434\u043D.")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...sans,
+        fontSize: 14,
+        color: C.ink,
+        lineHeight: 1.6
+      }
+    }, "\u041B\u0435\u0447\u0438\u043C:", " ", sickOnes.map((m, i) => /*#__PURE__*/React.createElement(React.Fragment, {
+      key: m.plantId
+    }, i > 0 && ", ", /*#__PURE__*/React.createElement("button", {
+      onClick: () => onOpen(m.plantId),
+      style: {
+        ...serif,
+        background: "none",
+        border: "none",
+        color: C.moss,
+        cursor: "pointer",
+        padding: 0,
+        fontSize: 15,
+        textDecoration: "underline"
+      }
+    }, nameOf(m.plantId)))), watchOnes.length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: C.moss,
+        marginTop: 4
+      }
+    }, "\u041F\u043E\u0434 \u043D\u0430\u0431\u043B\u044E\u0434\u0435\u043D\u0438\u0435\u043C: ", watchOnes.map(m => nameOf(m.plantId)).join(", "))), missed.length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...sans,
+        fontSize: 13.5,
+        color: C.blossomText,
+        marginTop: 8,
+        lineHeight: 1.5
+      }
+    }, "\u0412 \u043F\u0440\u043E\u0448\u043B\u0443\u044E \u043E\u0431\u0440\u0430\u0431\u043E\u0442\u043A\u0443 \u043F\u0440\u043E\u043F\u0443\u0441\u0442\u0438\u043B\u0438: ", missed.map(nameOf).join(", "), ". \u0412\u0440\u0435\u0434\u0438\u0442\u0435\u043B\u044C \u0432\u0435\u0440\u043D\u0451\u0442\u0441\u044F \u0438\u043C\u0435\u043D\u043D\u043E \u043E\u0442\u0442\u0443\u0434\u0430 \u2014 \u0432 \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u0440\u0430\u0437 \u043B\u0443\u0447\u0448\u0435 \u043F\u0440\u043E\u0439\u0442\u0438 \u0432\u0441\u044E \u0437\u043E\u043D\u0443 \u0440\u0430\u0437\u043E\u043C."), /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...sans,
+        fontSize: 13,
+        color: C.sageText,
+        marginTop: 8
+      }
+    }, o.checkDate && o.checkDate <= today() ? "Пора действовать" : "\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u0448\u0430\u0433: ".concat(fmtDay(o.checkDate))));
+  }), tallyList.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 26,
+      paddingTop: 18,
+      borderTop: "1px solid ".concat(C.line)
+    }
+  }, /*#__PURE__*/React.createElement("h3", {
+    style: {
+      ...serif,
+      fontWeight: 400,
+      fontSize: 20,
+      margin: "0 0 8px",
+      color: C.ink
+    }
+  }, "\u0417\u0430 \u0433\u043E\u0434"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...sans,
+      fontSize: 14,
+      color: C.ink,
+      lineHeight: 1.7
+    }
+  }, tallyList.map((k, i) => /*#__PURE__*/React.createElement(React.Fragment, {
+    key: k
+  }, i > 0 && " · ", pest(k).t.toLowerCase(), " \xD7", tally[k]))), tallyList.some(k => tally[k] >= 2) && /*#__PURE__*/React.createElement("p", {
+    style: {
+      ...sans,
+      fontSize: 13.5,
+      color: C.sunText,
+      margin: "8px 0 0",
+      lineHeight: 1.55
+    }
+  }, "\u041E\u0434\u0438\u043D \u0438 \u0442\u043E\u0442 \u0436\u0435 \u0432\u0440\u0435\u0434\u0438\u0442\u0435\u043B\u044C \u0432\u043E\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u0442\u0441\u044F \u2014 \u043E\u0431\u044B\u0447\u043D\u043E \u0434\u0435\u043B\u043E \u0432 \u0443\u0441\u043B\u043E\u0432\u0438\u044F\u0445, \u0430 \u043D\u0435 \u0432 \u043D\u0435\u0432\u0435\u0437\u0435\u043D\u0438\u0438: \u0441\u0443\u0445\u043E\u0439 \u0432\u043E\u0437\u0434\u0443\u0445 \u043E\u0442 \u0431\u0430\u0442\u0430\u0440\u0435\u0439 \u0434\u043B\u044F \u043A\u043B\u0435\u0449\u0430, \u043F\u0435\u0440\u0435\u0443\u0432\u043B\u0430\u0436\u043D\u0451\u043D\u043D\u044B\u0439 \u0433\u0440\u0443\u043D\u0442 \u0434\u043B\u044F \u0433\u0440\u0438\u0431\u043D\u043E\u0433\u043E \u043A\u043E\u043C\u0430\u0440\u0438\u043A\u0430.")), past.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 22
+    }
+  }, /*#__PURE__*/React.createElement("h3", {
+    style: {
+      ...serif,
+      fontWeight: 400,
+      fontSize: 20,
+      margin: "0 0 8px",
+      color: C.ink
+    }
+  }, "\u041F\u0440\u043E\u0448\u043B\u044B\u0435 \u0432\u0441\u043F\u044B\u0448\u043A\u0438"), past.slice(0, 20).map(o => /*#__PURE__*/React.createElement("div", {
+    key: o.id,
+    style: {
+      ...sans,
+      fontSize: 13.5,
+      color: C.moss,
+      padding: "8px 0",
+      borderBottom: "1px solid ".concat(C.line),
+      lineHeight: 1.5
+    }
+  }, /*#__PURE__*/React.createElement("b", {
+    style: {
+      ...serif,
+      fontWeight: 400,
+      fontSize: 15,
+      color: C.ink
+    }
+  }, pest(o.pest).t), " · ", o.zone, " · ", fmtDate(o.startedAt), o.endedAt ? " \u2014 ".concat(fmtDate(o.endedAt)) : "", /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: C.sageText
+    }
+  }, (o.members || []).filter(m => m.role === "infected").map(m => nameOf(m.plantId)).join(", "))))));
+}
+function VacationView(_ref54) {
+  let plants = _ref54.plants,
+    profile = _ref54.profile,
+    apartment = _ref54.apartment,
+    weather = _ref54.weather,
+    onBack = _ref54.onBack,
+    showToast = _ref54.showToast;
+  const _useState289 = useState(null),
     _useState290 = _slicedToArray(_useState289, 2),
-    showCal = _useState290[0],
-    setShowCal = _useState290[1];
-  const _useState291 = useState(today()),
+    prep = _useState290[0],
+    setPrep = _useState290[1];
+  const _useState291 = useState(false),
     _useState292 = _slicedToArray(_useState291, 2),
-    from = _useState292[0],
-    setFrom = _useState292[1];
-  const _useState293 = useState(isoDate(new Date(Date.now() + 13 * 86400000))),
+    prepBusy = _useState292[0],
+    setPrepBusy = _useState292[1];
+  const _useState293 = useState(false),
     _useState294 = _slicedToArray(_useState293, 2),
-    to = _useState294[0],
-    setTo = _useState294[1];
+    showCal = _useState294[0],
+    setShowCal = _useState294[1];
+  const _useState295 = useState(today()),
+    _useState296 = _slicedToArray(_useState295, 2),
+    from = _useState296[0],
+    setFrom = _useState296[1];
+  const _useState297 = useState(isoDate(new Date(Date.now() + 13 * 86400000))),
+    _useState298 = _slicedToArray(_useState297, 2),
+    to = _useState298[0],
+    setTo = _useState298[1];
   useEffect(() => {
     (async () => {
       try {
@@ -12297,9 +12855,9 @@ function VacationView(_ref51) {
     };
   }) : [];
   const byDate = {};
-  plan.forEach(_ref52 => {
-    let p = _ref52.p,
-      dates = _ref52.dates;
+  plan.forEach(_ref55 => {
+    let p = _ref55.p,
+      dates = _ref55.dates;
     return dates.forEach(k => {
       (byDate[k] = byDate[k] || []).push(p);
     });
@@ -12360,8 +12918,8 @@ function VacationView(_ref51) {
     const drinkers = plan.filter(x => x.dates.length);
     if (drinkers.length) {
       s += "\nОсобенности:\n";
-      drinkers.forEach(_ref53 => {
-        let p = _ref53.p;
+      drinkers.forEach(_ref56 => {
+        let p = _ref56.p;
         const c = p.care || {};
         s += "\u2022 ".concat(p.nickname || p.name, ": ").concat(c.dryDownTarget || c.wateringNote || "умеренно, отстоянной водой комнатной температуры", "\n");
       });
@@ -12391,8 +12949,8 @@ function VacationView(_ref51) {
     const esc = s => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const drinkers = plan.filter(x => x.dates.length);
     const photo = p => plantPhoto(p) ? "<img src=\"".concat(plantPhoto(p), "\" alt=\"\">") : "<span class='ph'></span>";
-    const html = "<!DOCTYPE html><html lang=\"ru\"><head><meta charset=\"utf-8\"><title>\u041F\u0430\u043C\u044F\u0442\u043A\u0430 \u043F\u043E \u043F\u043E\u043B\u0438\u0432\u0443</title>\n<style>body{font-family:Georgia,serif;color:#2e4433;background:#f7f6ef;max-width:680px;margin:0 auto;padding:28px 20px}\nh1{font-weight:400;font-size:26px;margin:0 0 4px}h2{font-weight:400;font-size:18px;margin:24px 0 8px;border-bottom:1px solid #d8d6c6;padding-bottom:4px}\n.muted{color:#7d9b76;font-style:italic}.d{margin:7px 0}\nli{margin:5px 0;font-family:-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.5}\n.rules{background:#dde8ec;border-radius:12px;padding:12px 16px;font-family:-apple-system,sans-serif;font-size:14px;line-height:1.6}\n.p{display:inline-flex;align-items:center;gap:6px;margin:4px 10px 4px 0}\n.p img,.p .ph{width:34px;height:34px;border-radius:8px;object-fit:cover;background:#dce6d5;display:inline-block}\n.no{background:#f0dfe4;border-radius:12px;padding:12px 16px;font-family:-apple-system,sans-serif;font-size:14px}\n@media print{body{background:#fff}}</style></head><body>\n<h1>\u041F\u0430\u043C\u044F\u0442\u043A\u0430 \u043F\u043E \u043F\u043E\u043B\u0438\u0432\u0443 \u0441\u0430\u0434\u0430</h1>\n<div class=\"muted\">".concat(esc(fmtDay(from)), " \u2014 ").concat(esc(fmtDay(to)), "</div>\n<div class=\"rules\" style=\"margin-top:16px\">\n<b>\u0422\u0440\u0438 \u043F\u0440\u0430\u0432\u0438\u043B\u0430</b><br>\n1. \u041F\u0435\u0440\u0435\u0434 \u043F\u043E\u043B\u0438\u0432\u043E\u043C \u043F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0437\u0435\u043C\u043B\u044E \u043F\u0430\u043B\u044C\u0446\u0435\u043C \u043D\u0430 \u0434\u0432\u0435 \u0444\u0430\u043B\u0430\u043D\u0433\u0438 \u0432\u0433\u043B\u0443\u0431\u044C. \u0412\u043B\u0430\u0436\u043D\u043E \u2014 \u043D\u0435 \u043F\u043E\u043B\u0438\u0432\u0430\u0439\u0442\u0435: \u043F\u0440\u043E\u043F\u0443\u0441\u043A \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u0435\u0435 \u043B\u0438\u0448\u043D\u0435\u0439 \u0432\u043E\u0434\u044B.<br>\n2. \u041B\u0435\u0439\u0442\u0435 \u0434\u043E \u043F\u043E\u044F\u0432\u043B\u0435\u043D\u0438\u044F \u0432\u043E\u0434\u044B \u0438\u0437 \u0434\u0440\u0435\u043D\u0430\u0436\u043D\u043E\u0433\u043E \u043E\u0442\u0432\u0435\u0440\u0441\u0442\u0438\u044F, \u0447\u0435\u0440\u0435\u0437 20 \u043C\u0438\u043D\u0443\u0442 \u0441\u043B\u0435\u0439\u0442\u0435 \u0438\u0437 \u043F\u043E\u0434\u0434\u043E\u043D\u0430.<br>\n3. \u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043E\u043F\u0440\u044B\u0441\u043A\u0438\u0432\u0430\u0439\u0442\u0435 \u0438 \u043D\u0435 \u043F\u043E\u0434\u043A\u0430\u0440\u043C\u043B\u0438\u0432\u0430\u0439\u0442\u0435 \u2014 \u044D\u0442\u043E \u043F\u043E\u0434\u043E\u0436\u0434\u0451\u0442.\n</div>\n").concat(prepGroups.length ? "<h2>\u041F\u043E\u0434\u0433\u043E\u0442\u043E\u0432\u043A\u0430 \u043A \u043E\u0442\u044A\u0435\u0437\u0434\u0443</h2>".concat(prepGroups.map(g => "<div class=\"d\"><b>".concat(esc(g.title), "</b></div><ul>").concat(prep[g.key].map(it => "<li>".concat(esc(it), "</li>")).join(""), "</ul>")).join("")) : "", "\n<h2>\u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u044C</h2>\n").concat(days.map(k => "<div class=\"d\"><b>".concat(esc(fmtDay(k)), "</b><br>").concat(byDate[k].map(p => "<span class=\"p\">".concat(photo(p), " ").concat(esc((p.nickname || p.name) + (p.spot ? " (" + shortSpot(p.spot) + ")" : "")), "</span>")).join(""), "</div>")).join(""), "\n").concat(drinkers.length ? "<h2>\u041E\u0441\u043E\u0431\u0435\u043D\u043D\u043E\u0441\u0442\u0438</h2><ul>".concat(drinkers.map(_ref54 => {
-      let p = _ref54.p;
+    const html = "<!DOCTYPE html><html lang=\"ru\"><head><meta charset=\"utf-8\"><title>\u041F\u0430\u043C\u044F\u0442\u043A\u0430 \u043F\u043E \u043F\u043E\u043B\u0438\u0432\u0443</title>\n<style>body{font-family:Georgia,serif;color:#2e4433;background:#f7f6ef;max-width:680px;margin:0 auto;padding:28px 20px}\nh1{font-weight:400;font-size:26px;margin:0 0 4px}h2{font-weight:400;font-size:18px;margin:24px 0 8px;border-bottom:1px solid #d8d6c6;padding-bottom:4px}\n.muted{color:#7d9b76;font-style:italic}.d{margin:7px 0}\nli{margin:5px 0;font-family:-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.5}\n.rules{background:#dde8ec;border-radius:12px;padding:12px 16px;font-family:-apple-system,sans-serif;font-size:14px;line-height:1.6}\n.p{display:inline-flex;align-items:center;gap:6px;margin:4px 10px 4px 0}\n.p img,.p .ph{width:34px;height:34px;border-radius:8px;object-fit:cover;background:#dce6d5;display:inline-block}\n.no{background:#f0dfe4;border-radius:12px;padding:12px 16px;font-family:-apple-system,sans-serif;font-size:14px}\n@media print{body{background:#fff}}</style></head><body>\n<h1>\u041F\u0430\u043C\u044F\u0442\u043A\u0430 \u043F\u043E \u043F\u043E\u043B\u0438\u0432\u0443 \u0441\u0430\u0434\u0430</h1>\n<div class=\"muted\">".concat(esc(fmtDay(from)), " \u2014 ").concat(esc(fmtDay(to)), "</div>\n<div class=\"rules\" style=\"margin-top:16px\">\n<b>\u0422\u0440\u0438 \u043F\u0440\u0430\u0432\u0438\u043B\u0430</b><br>\n1. \u041F\u0435\u0440\u0435\u0434 \u043F\u043E\u043B\u0438\u0432\u043E\u043C \u043F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0437\u0435\u043C\u043B\u044E \u043F\u0430\u043B\u044C\u0446\u0435\u043C \u043D\u0430 \u0434\u0432\u0435 \u0444\u0430\u043B\u0430\u043D\u0433\u0438 \u0432\u0433\u043B\u0443\u0431\u044C. \u0412\u043B\u0430\u0436\u043D\u043E \u2014 \u043D\u0435 \u043F\u043E\u043B\u0438\u0432\u0430\u0439\u0442\u0435: \u043F\u0440\u043E\u043F\u0443\u0441\u043A \u0431\u0435\u0437\u043E\u043F\u0430\u0441\u043D\u0435\u0435 \u043B\u0438\u0448\u043D\u0435\u0439 \u0432\u043E\u0434\u044B.<br>\n2. \u041B\u0435\u0439\u0442\u0435 \u0434\u043E \u043F\u043E\u044F\u0432\u043B\u0435\u043D\u0438\u044F \u0432\u043E\u0434\u044B \u0438\u0437 \u0434\u0440\u0435\u043D\u0430\u0436\u043D\u043E\u0433\u043E \u043E\u0442\u0432\u0435\u0440\u0441\u0442\u0438\u044F, \u0447\u0435\u0440\u0435\u0437 20 \u043C\u0438\u043D\u0443\u0442 \u0441\u043B\u0435\u0439\u0442\u0435 \u0438\u0437 \u043F\u043E\u0434\u0434\u043E\u043D\u0430.<br>\n3. \u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043E\u043F\u0440\u044B\u0441\u043A\u0438\u0432\u0430\u0439\u0442\u0435 \u0438 \u043D\u0435 \u043F\u043E\u0434\u043A\u0430\u0440\u043C\u043B\u0438\u0432\u0430\u0439\u0442\u0435 \u2014 \u044D\u0442\u043E \u043F\u043E\u0434\u043E\u0436\u0434\u0451\u0442.\n</div>\n").concat(prepGroups.length ? "<h2>\u041F\u043E\u0434\u0433\u043E\u0442\u043E\u0432\u043A\u0430 \u043A \u043E\u0442\u044A\u0435\u0437\u0434\u0443</h2>".concat(prepGroups.map(g => "<div class=\"d\"><b>".concat(esc(g.title), "</b></div><ul>").concat(prep[g.key].map(it => "<li>".concat(esc(it), "</li>")).join(""), "</ul>")).join("")) : "", "\n<h2>\u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u044C</h2>\n").concat(days.map(k => "<div class=\"d\"><b>".concat(esc(fmtDay(k)), "</b><br>").concat(byDate[k].map(p => "<span class=\"p\">".concat(photo(p), " ").concat(esc((p.nickname || p.name) + (p.spot ? " (" + shortSpot(p.spot) + ")" : "")), "</span>")).join(""), "</div>")).join(""), "\n").concat(drinkers.length ? "<h2>\u041E\u0441\u043E\u0431\u0435\u043D\u043D\u043E\u0441\u0442\u0438</h2><ul>".concat(drinkers.map(_ref57 => {
+      let p = _ref57.p;
       return "<li><b>".concat(esc(p.nickname || p.name), "</b>: ").concat(esc(p.care && (p.care.dryDownTarget || p.care.wateringNote) || "умеренно, отстоянной водой комнатной температуры"), "</li>");
     }).join(""), "</ul>") : "", "\n").concat(resting.length ? "<h2>\u041D\u0435 \u0442\u0440\u043E\u0433\u0430\u0442\u044C</h2><div class=\"no\">\u041F\u043E\u043B\u0438\u0432 \u0432 \u044D\u0442\u043E\u0442 \u043F\u0435\u0440\u0438\u043E\u0434 \u043D\u0435 \u043D\u0443\u0436\u0435\u043D: ".concat(resting.map(p => esc(p.nickname || p.name)).join(", "), ".</div>") : "", "\n<p class=\"muted\" style=\"margin-top:24px\">\u0421\u043F\u0430\u0441\u0438\u0431\u043E, \u0447\u0442\u043E \u043F\u0440\u0438\u0441\u043C\u0430\u0442\u0440\u0438\u0432\u0430\u0435\u0442\u0435 \u0437\u0430 \u0441\u0430\u0434\u043E\u043C! \uD83C\uDF31</p>\n</body></html>");
     const url = URL.createObjectURL(new Blob([html], {
