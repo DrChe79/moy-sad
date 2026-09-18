@@ -429,7 +429,7 @@ function applyTheme(mode) {
   } catch (e) {/* до монтирования — не страшно */}
   return dark;
 }
-const APP_VERSION = "18.09-12:40";
+const APP_VERSION = "18.09-13:18";
 
 /* localStorage хранит строки в UTF-16 — два байта на символ. Браузерные «5 МБ»
    это примерно 2,6 млн символов, а не 5 млн, как считала прежняя версия: порог
@@ -918,6 +918,10 @@ const invCatT = v => invCat(v).t;
 /* Угадываем категорию по названию — чтобы купленное из «Нужного» не падало всё в «Другое» */
 function guessCategory(text) {
   const s = (text || "").toLowerCase();
+  /* Если название узнала таблица действующих веществ — это средство от
+     вредителей, какой бы редкой ни была марка. Так «Санмайт» не падает
+     в «Другое» и не теряет группу. */
+  if (guessGroup(s)) return "care";
   if (/(грунт|земл|субстрат|дренаж|керамзит|перлит|вермикулит|кора|сфагнум|мох|торф|уголь)/.test(s)) return "soil";
   if (/(удобрен|подкорм|bona|агрикола|фертика|осмокот|гуми|хелат|железо|биогумус|нпк|npk)/.test(s)) return "feed";
   if (/(фитоверм|актар|актелл|фунгицид|инсектицид|акарицид|фитоспорин|превикур|спасател|мыло|табач|препарат|обработ|ловушк|липк)/.test(s)) return "care";
@@ -1204,6 +1208,216 @@ const pest = v => PESTS.find(p => p.v === v) || PESTS[7];
 function pestGap(v, warm) {
   const p = pest(v);
   return warm === false ? p.gapCold : p.gap;
+}
+
+/* ─────────────────────────  Химия: группа, а не название банки  ─────────────────────────
+   Две ошибки стоят большинства проваленных курсов, и обе арифметические.
+   Первая: чередуют препараты, а не вещества. Фитоверм и Клещевит — один и тот же
+   аверсектин C; для вредителя это одна и та же молекула, и «смена средства»
+   ничего не меняет. Вторая: берут по клещу неоникотиноид. Актара прекрасно
+   работает по трипсу, щитовке и червецу и совершенно бесполезна против клеща —
+   клещ не насекомое. Обе проверки — таблица, а не совет модели. */
+const SUBST_GROUPS = [{
+  v: "avermectin",
+  t: "авермектины",
+  subs: "аверсектин C, абамектин",
+  kind: "биопрепараты, контактно-кишечные",
+  works: ["mite", "thrips", "aphid", "whitefly", "mealy"],
+  examples: "Фитоверм, Клещевит, Акарин, Вертимек",
+  note: "Работают только в тепле: ниже +18° действие резко падает. Запах слабый, в комнате применимы."
+}, {
+  v: "neonic",
+  t: "неоникотиноиды",
+  subs: "имидаклоприд, тиаметоксам",
+  kind: "системные, впитываются растением",
+  works: ["thrips", "scale", "mealy", "whitefly", "aphid"],
+  examples: "Актара, Конфидор, Танрек, Биотлин",
+  note: "Проливают под корень — достают щитовку и червеца там, куда спрей не попадает. По клещу не действуют вовсе."
+}, {
+  v: "acaricide",
+  t: "специфические акарициды",
+  subs: "пиридабен, клофентезин, спиромесифен",
+  kind: "только против клещей",
+  works: ["mite"],
+  examples: "Санмайт, Аполло, Оберон, Флумайт",
+  note: "Узкие и сильные. Лучшая вторая группа, когда авермектины в прошлом курсе уже были."
+}, {
+  v: "pyrethroid",
+  t: "пиретроиды",
+  subs: "перметрин, циперметрин, дельтаметрин",
+  kind: "широкий спектр, контактные",
+  catRisk: true,
+  works: ["thrips", "aphid", "whitefly", "mealy", "scale"],
+  examples: "Инта-Вир, бытовые аэрозоли",
+  note: "Кошки плохо их метаболизируют — при кошке в доме лучше взять другую группу."
+}, {
+  v: "op",
+  t: "фосфорорганика",
+  subs: "пиримифос-метил, малатион",
+  kind: "широкий спектр, сильные",
+  indoor: false,
+  works: ["mite", "thrips", "scale", "mealy", "whitefly", "aphid"],
+  examples: "Актеллик, Фуфанон",
+  note: "Резкий стойкий запах: только балкон или вне дома, с проветриванием. В жилой комнате не применять."
+}, {
+  v: "soap",
+  t: "мыло и масла",
+  subs: "калийное (зелёное) мыло, минеральное масло",
+  kind: "контактные, вспомогательные",
+  aux: true,
+  works: ["mite", "mealy", "scale", "aphid", "whitefly"],
+  examples: "зелёное мыло, масляные составы",
+  note: "Смывают и душат — хорошая подготовка перед основным средством, но курс ими не закрывают."
+}, {
+  v: "soil",
+  t: "почвенные",
+  subs: "диазинон, бактериальные (Bti)",
+  kind: "работают в грунте",
+  works: ["gnats", "thrips"],
+  examples: "Гризли, Мухоед, Битоксибациллин",
+  note: "Против личинок в земле. Взрослых мошек ловят жёлтые клеевые ловушки."
+}];
+const substGroup = v => SUBST_GROUPS.find(g => g.v === v) || null;
+const groupT = v => (substGroup(v) || {}).t || "";
+const groupWorksOn = (groupId, pestKind) => {
+  const g = substGroup(groupId);
+  return !!g && g.works.indexOf(pestKind) >= 0;
+};
+
+/* Чем этого вредителя берут: основные группы и вспомогательные */
+function groupsForPest(pestKind) {
+  const fit = SUBST_GROUPS.filter(g => g.works.indexOf(pestKind) >= 0);
+  return {
+    main: fit.filter(g => !g.aux),
+    aux: fit.filter(g => g.aux)
+  };
+}
+
+/* Название банки → действующее вещество. Список намеренно короткий:
+   лучше не угадать и промолчать, чем угадать неверно и дать ложную уверенность. */
+const GROUP_HINTS = [[/(фитоверм|клещевит|вертимек|акарин|актофит|аверсектин|абамектин)/, "avermectin"], [/(актар|конфидор|танрек|биотлин|командор|имидаклоприд|тиаметоксам|искра золот)/, "neonic"], [/(санмайт|аполло|оберон|флумайт|ниссоран|пиридабен|клофентезин|спиромесифен|энвидор)/, "acaricide"], [/(актеллик|фуфанон|карбофос|пиримифос|малатион)/, "op"], [/(инта-вир|интавир|перметрин|циперметрин|дельтаметрин|дихлофос)/, "pyrethroid"], [/(зелёное мыло|зеленое мыло|калийное мыло|хозяйственное мыло|мыл|масло нима|минеральное масло)/, "soap"], [/(гризли|мухоед|базудин|диазинон|битоксибациллин|лепидоцид|почин)/, "soil"]];
+function guessGroup(text) {
+  const s = (text || "").toLowerCase();
+  if (!s.trim()) return null;
+  for (let i = 0; i < GROUP_HINTS.length; i++) if (GROUP_HINTS[i][0].test(s)) return GROUP_HINTS[i][1];
+  return null;
+}
+
+/* У позиции инвентаря группа может быть проставлена руками; пустая строка —
+   «это не средство от вредителей», и тогда угадывать больше не нужно. */
+function invGroupOf(item) {
+  if (!item) return null;
+  if (item.substanceGroup === "") return null;
+  if (item.substanceGroup) return item.substanceGroup;
+  return guessGroup(item.name);
+}
+
+/* Что с полки годится против этого вредителя, а что лежит зря */
+function shelfFor(pestKind, inventory) {
+  const fits = [],
+    wrong = [];
+  (inventory || []).forEach(i => {
+    if (i.empty) return;
+    const g = invGroupOf(i);
+    if (!g) return;
+    (groupWorksOn(g, pestKind) ? fits : wrong).push({
+      item: i,
+      group: g
+    });
+  });
+  return {
+    fits,
+    wrong
+  };
+}
+const roundGroup = r => r && (r.groupId || guessGroup(r.product)) || null;
+
+/* Основные группы, которыми шёл курс. Вспомогательные (мыло) за ротацию
+   не считаются: ими вредителя не добивают. */
+function groupsUsedIn(o) {
+  const out = [];
+  (o && o.rounds || []).forEach(r => {
+    const g = roundGroup(r);
+    if (g && !(substGroup(g) || {}).aux && out.indexOf(g) < 0) out.push(g);
+  });
+  return out;
+}
+
+/* Прошлый курс от того же вредителя — чтобы не повторить ту же группу */
+function lastCourse(pestKind, outbreaks, exceptId) {
+  return (outbreaks || []).filter(o => o.pest === pestKind && o.id !== exceptId && o.status !== "active" && groupsUsedIn(o).length > 0).sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt))[0] || null;
+}
+
+/* Одна подсказка по средству на все экраны, чтобы тексты не разошлись */
+function chemAdvice(o, inventory, outbreaks) {
+  const kind = o ? o.pest : "other";
+  const _groupsForPest = groupsForPest(kind),
+    main = _groupsForPest.main,
+    aux = _groupsForPest.aux;
+  const used = groupsUsedIn(o);
+  const prev = lastCourse(kind, outbreaks, o && o.id);
+  const prevGroups = prev ? groupsUsedIn(prev) : [];
+  /* Внутри курса группу держим одну, между курсами — меняем. В замену
+     предлагаем только то, чем можно работать дома: советовать Актеллик
+     в жилой комнате — не совет. */
+  const fresh = main.filter(g => prevGroups.indexOf(g.v) < 0 && g.indoor !== false);
+  const repeat = used.filter(g => prevGroups.indexOf(g) >= 0);
+  return {
+    main,
+    aux,
+    used,
+    prev,
+    prevGroups,
+    fresh,
+    repeat,
+    shelf: shelfFor(kind, inventory)
+  };
+}
+
+/* Разбор причины: считается по своим же данным, без ИИ и без укора */
+function outbreakCause(o, plants, outbreaks, profile) {
+  if (!o) return [];
+  const out = [];
+  const start = new Date(o.startedAt).getTime();
+  const yearAgo = start - 365 * 86400000;
+  const same = (outbreaks || []).filter(x => {
+    const t = new Date(x.startedAt).getTime();
+    return x.pest === o.pest && t >= yearAgo && t <= start;
+  });
+  const zones = [];
+  same.forEach(x => {
+    if (x.zone && zones.indexOf(x.zone) < 0) zones.push(x.zone);
+  });
+  if (same.length >= 2) {
+    out.push("".concat(pest(o.pest).t, " ").concat(same.length === 2 ? "второй раз" : same.length + "-й раз", " за год") + (zones.length === 1 ? ", и всякий раз на одном месте — «".concat(zones[0], "»") : "") + ".");
+    if (o.pest === "mite") {
+      out.push(profile && profile.heatingOn ? "Сухой воздух у батареи — лучшее место для клеща. Помогают поддон с влажным керамзитом, душ раз в месяц, увлажнитель." : "Клещ любит сухой тёплый воздух. Помогают поддон с влажным керамзитом и душ раз в месяц.");
+    }
+    if (o.pest === "gnats") out.push("Комарик живёт в постоянно влажном верхнем слое. Помогает просушивать верхние 2–3 см и снять мульчу.");
+    if (o.pest === "thrips") out.push("Трипс пережидает в грунте — оттуда и возвращается. Между курсами помогают пролив грунта и синие клеевые ловушки.");
+    if (o.pest === "scale" || o.pest === "mealy") out.push("Щитовка и червец расселяются медленно и незаметно: обычно они всё это время были рядом, просто на соседнем горшке.");
+  }
+  /* Новичок как источник — не упрёк, а урок про карантин */
+  const ids = (o.members || []).map(m => m.plantId);
+  const newbie = (plants || []).find(p => {
+    if (ids.indexOf(p.id) < 0) return false;
+    const added = new Date(p.addedAt).getTime();
+    return added <= start && start - added <= 30 * 86400000;
+  });
+  if (newbie) {
+    const days = Math.max(1, Math.round((start - new Date(newbie.addedAt).getTime()) / 86400000));
+    out.push("Вспышка началась через ".concat(days, " ").concat(plural(days, "день", "дня", "дней"), " после появления «").concat(newbie.nickname || newbie.name, "» — ") + "вероятнее всего, вредитель приехал вместе с ним. Месяц карантина отдельно от остальных снимает почти все такие истории.");
+  }
+  const used = groupsUsedIn(o);
+  const prev = lastCourse(o.pest, outbreaks, o.id);
+  const prevGroups = prev ? groupsUsedIn(prev) : [];
+  const repeated = used.filter(g => prevGroups.indexOf(g) >= 0);
+  if (repeated.length > 0) {
+    out.push("Этот курс и прошлый шли на одной группе (".concat(repeated.map(groupT).join(", "), "). ") + "К повторяющемуся веществу вредитель привыкает — в следующий раз лучше начать с другой группы.");
+  } else if (used.length === 1 && (o.rounds || []).length >= 2) {
+    out.push("Весь курс шёл на одной группе (".concat(groupT(used[0]), ") — внутри курса это правильно. Если вредитель вернётся, следующий раз начните с другой."));
+  }
+  return out;
 }
 
 /* ─────────────────────────  Вспышка: событие сада, а не растения  ─────────────────────────
@@ -1585,7 +1799,7 @@ function clampCare(c) {
 
 /* Общая приписка к любому плану обработки. Дозировку ИИ называть не должен — только
    действующее вещество; доза всегда берётся с этикетки. */
-const SAFETY_RULES = "Правила, которые обязательно соблюдай в plan:\n- НИКОГДА не называй дозировку, концентрацию, «столько-то мл на литр». Указывай только действующее вещество или тип средства и добавляй «доза — строго по этикетке».\n- Всегда напоминай обрабатывать изнанку листьев, не на прямом солнце, при проветривании.\n- Если в квартире есть животные или дети — предупреди убрать растение на время обработки и до высыхания.\n- Обработку от вредителя назначай ВСЕМ соседям на той же полке или подоконнике, не только больному растению.\n- Подкормки на время лечения отменяются полностью.";
+const SAFETY_RULES = "Правила, которые обязательно соблюдай в plan:\n- НИКОГДА не называй дозировку, концентрацию, «столько-то мл на литр». Указывай только действующее вещество или тип средства и добавляй «доза — строго по этикетке».\n- Всегда напоминай обрабатывать изнанку листьев, не на прямом солнце, при проветривании.\n- Если в квартире есть животные или дети — предупреди убрать растение на время обработки и до высыхания.\n- Обработку от вредителя назначай ВСЕМ соседям на той же полке или подоконнике, не только больному растению.\n- По паутинному клещу НИКОГДА не предлагай неоникотиноиды (Актара, Конфидор, Танрек, имидаклоприд, тиаметоксам): клещ не насекомое, они на него не действуют. Только авермектины (аверсектин C, абамектин) или специфические акарициды (пиридабен, клофентезин, спиромесифен).\n- Чередовать нужно действующее вещество, а не название препарата: Фитоверм и Клещевит — один и тот же аверсектин C, менять одно на другое бессмысленно.\n- Фосфорорганику (Актеллик) в жилой комнате не предлагай — резкий стойкий запах, только балкон или вне дома.\n- Подкормки на время лечения отменяются полностью.";
 async function generatePassport(name, location, spot, apartment, pot) {
   const potNote = pot && pot.potCm ? "Горшок: ".concat(pot.potCm, " см в диаметре, ").concat(potMaterialT(pot.potMaterial) || "материал не указан").concat(pot.drainage === false ? ", БЕЗ дренажного отверстия" : "").concat(pot.substrate ? ", субстрат: " + substrateT(pot.substrate) : "", ". Считай интервалы полива именно для такого горшка.") : "Размер горшка неизвестен — считай интервалы для типового пластикового горшка 2 л и обязательно скажи об этом в intervalAssumes.";
   const prompt = "Ты — опытный и заботливый ботаник. Составь паспорт ухода за комнатным растением.\nРастение: \"".concat(name, "\". Где стоит: ").concat(location === "balcony" ? "на балконе" : "дома").concat(spot ? ", ".concat(spot) : "", ".\nПро квартиру: ").concat(apartment, "\n").concat(potNote, "\nРекомендации по свету давай с учётом ориентации окон и конкретного места. Если растение стоит не у окна или в глубине комнаты — обязательно учитывай пониженную освещённость: скорректируй полив (медленнее просыхает) и честно предупреди в tip, если там будет темно.\nОтветь ТОЛЬКО валидным JSON без пояснений и без markdown, со строго такими полями:\n{\n \"latinName\": \"латинское название\",\n \"commonName\": \"общепринятое русское название вида\",\n \"light\": \"краткая рекомендация по свету, 1 фраза\",\n \"wateringSummer\": число_дней_между_поливами_в_разгар_лета,\n \"wateringWinter\": число_дней_между_поливами_в_декабре_январе,\n \"intervalAssumes\": \"при каких условиях верны эти числа: горшок, температура, свет — 1 короткая фраза\",\n \"dryDownTarget\": \"критерий полива словами: сколько просохло, прежде чем поливать (например: верхние 2-3 см сухие; просыхает насквозь; не пересушивать)\",\n \"wateringMethod\": \"верхний полив | нижний полив | погружением | тёплый душ — что этому виду правильнее\",\n \"wateringNote\": \"как поливать, 1 фраза\",\n \"humidity\": \"требования к влажности, 1 фраза\",\n \"mistOk\": true_или_false,\n \"mistIntervalDays\": число_дней_между_опрыскиваниями_или_null,\n \"humidityAdvice\": \"если mistOk=false, но влажность нужна — чем заменить опрыскивание, 1 фраза, иначе null\",\n \"wipeIntervalDays\": число_дней_между_протираниями_листьев_или_null,\n \"feedIntervalSummerDays\": число_дней_между_подкормками_в_сезон_роста_или_null,\n \"feedIntervalWinterDays\": число_дней_между_подкормками_зимой_или_null_если_зимой_не_кормят,\n \"feedType\": \"чем кормить: тип удобрения и на что обратить внимание, 1 фраза\",\n \"feedLockoutAfterRepotDays\": сколько_дней_не_кормить_после_пересадки_числом,\n \"feeding\": \"чем и когда подкармливать, 1 фраза\",\n \"repotting\": \"когда пересаживать, 1 фраза\",\n \"repotEveryMonths\": через_сколько_месяцев_пересаживать_числом,\n \"repotSeason\": \"в каком месяце лучше пересаживать\",\n \"potStepCm\": на_сколько_см_увеличивать_диаметр_горшка_числом,\n \"soil\": \"какой нужен грунт: состав, дренаж, кислотность — 1 фраза\",\n \"phRange\": \"диапазон pH, например 5.5-6.5\",\n \"waterSensitivity\": \"чувствительность к жёсткой воде и солям: high | medium | low\",\n \"dormancy\": {\"type\": \"нет | холодный сухой | холодный влажный | тёплый с досветкой\", \"months\": \"месяцы покоя или null\", \"tempC\": температура_покоя_числом_или_null, \"feed\": false},\n \"winterLightSupplement\": \"нужна ли досветка в ноябре-феврале и сколько часов, 1 фраза или null\",\n \"difficulty\": \"простое | среднее | капризное\",\n \"minTempC\": минимальная_безопасная_температура_числом,\n \"chillDamageTempC\": температура_при_которой_начинается_холодовое_повреждение_числом_обычно_на_2_4_градуса_выше_minTempC_и_почти_никогда_выше_16,\n \"draftSensitive\": true_или_false,\n \"commonPests\": [\"чаще всего досаждают: ...\", \"...\"],\n \"earlySymptoms\": \"по каким первым признакам понять, что что-то не так, 1 фраза\",\n \"topMistake\": \"самая частая ошибка владельцев именно с этим видом, 1 фраза\",\n \"bloomSeason\": \"когда цветёт или null\",\n \"bloomTrigger\": \"что запускает цветение, если это управляемо (фотопериод, прохладные ночи, сухая зимовка), иначе null\",\n \"pruning\": \"когда и как обрезать; обязательно укажи, цветёт ли на приросте прошлого или текущего года, или null\",\n \"propagation\": \"как размножать и в каком сезоне, 1 фраза\",\n \"toxicity\": \"опасно ли для кошек, собак и детей — коротко и честно, или 'не токсично'\",\n \"confidence\": \"high | medium | low — насколько уверенно ты определил вид по названию\",\n \"tip\": \"один тёплый дружеский совет об этом растении, 1-2 фразы\"\n}\nВажно про mistOk: false для суккулентов, кактусов, опушённых листьев (сенполия), для калатей и марант (грибные пятна), для розеточных, где вода застаивается в воронке. Для них humidityAdvice — увлажнитель, поддон с керамзитом, группировка.\nПро wipeIntervalDays: число только для крупных гладких листьев (фикусы, монстеры, шефлеры); для мелколистных, опушённых и суккулентов — null.\nПро dryDownTarget: это главное поле. Число дней — лишь ориентир, когда пойти проверить; решение принимается по этому критерию.");
@@ -1646,8 +1860,11 @@ async function diagnosePlant(imageBase64, mediaType, plant, apartment, invText, 
 function buildGardenContext(plants, journal, profile, outbreaks) {
   const sickBy = {};
   activeOutbreaks(outbreaks).forEach(o => {
+    /* Чем уже обрабатывали — чтобы садовник не предложил ту же группу по кругу */
+    const used = groupsUsedIn(o);
+    const note = o.issue + (used.length ? " (обработки шли на группе: ".concat(used.map(groupT).join(", "), ")") : "");
     (o.members || []).forEach(m => {
-      if (m.role === "infected") sickBy[m.plantId] = o.issue;
+      if (m.role === "infected") sickBy[m.plantId] = note;
     });
   });
   const lines = plants.map(p => {
@@ -3962,15 +4179,18 @@ function MyGarden() {
     });
     showToast("Убрано из списка", "undo");
   }
-  function addInvItem(name, category, note, volume) {
+  function addInvItem(name, category, note, volume, group) {
     const t = (name || "").trim();
     if (!t) return;
+    const cat = category || guessCategory(t);
     commit({
       inventory: [{
         id: uid(),
         name: t,
-        category: category || guessCategory(t),
+        category: cat,
         note: (note || "").trim(),
+        /* действующее вещество: undefined — «не спрашивали», "" — «не средство» */
+        substanceGroup: cat === "care" ? group === undefined ? guessGroup(t) : group : undefined,
         uses: 0,
         usesTotal: Number(volume) || null,
         addedAt: now(),
@@ -4725,6 +4945,8 @@ function MyGarden() {
   }), view === "health" && /*#__PURE__*/React.createElement(HealthView, {
     outbreaks: outbreaks,
     plants: plants,
+    inventory: inventory,
+    profile: profile,
     onStart: (seed, kind, issue, plan, also) => startOutbreak(seed, kind, issue, plan, also),
     onOpen: id => go("plant", id),
     onBack: () => go("today")
@@ -4818,7 +5040,7 @@ function MyGarden() {
       });
     },
     onStartTreatment: (issue, plan, pestKind) => startOutbreak(openPlant, pestKind, issue, plan),
-    onRound: (product, plantIds) => {
+    onRound: (product, plantIds, groupId) => {
       const S = snapshot();
       const ob = outbreakOf(openPlant.id, S.outbreaks);
       if (!ob) return;
@@ -4827,9 +5049,11 @@ function MyGarden() {
         return;
       }
       const treated = plantIds && plantIds.length ? plantIds : ob.members.map(m => m.plantId);
+      const gid = groupId || guessGroup(product);
       const rounds = [...(ob.rounds || []), {
         at: now(),
         product: product || "",
+        groupId: gid || null,
         plantIds: treated
       }];
       const nob = {
@@ -4848,7 +5072,10 @@ function MyGarden() {
         outbreaks: S.outbreaks.map(o => o.id === ob.id ? nob : o),
         journal: nj
       });
-      showToast(missed.length ? "Отмечено ".concat(treated.length, ". Не обработаны: ").concat(missed.length, " — от них вредитель вернётся") : done ? "Курс отработан — осталось проконтролировать" : "Обработка ".concat(rounds.length, " из ").concat(ob.roundsPlanned, " ✓"), "undo");
+      /* Бесполезная обработка — не ошибка ввода, а потерянная неделя курса:
+         говорим об этом прямо, а не прячем в мелкий текст. */
+      const wrongG = gid && !groupWorksOn(gid, ob.pest) ? substGroup(gid) : null;
+      showToast(wrongG ? "Записала, но ".concat(wrongG.t, " против «").concat(pest(ob.pest).t.toLowerCase(), "» не действуют — обработка не считается") : missed.length ? "Отмечено ".concat(treated.length, ". Не обработаны: ").concat(missed.length, " — от них вредитель вернётся") : done ? "Курс отработан — осталось проконтролировать" : "Обработка ".concat(rounds.length, " из ").concat(ob.roundsPlanned, " ✓"), "undo");
     },
     onTreatmentCheck: result => {
       const S = snapshot();
@@ -7168,47 +7395,52 @@ function PlantView(props) {
     _useState152 = _slicedToArray(_useState151, 2),
     roundPicked = _useState152[0],
     setRoundPicked = _useState152[1];
-  /* null — форма закрыта, "" — открыта, но вредитель ещё не выбран */
+  /* группа действующего вещества: угадывается по названию, но можно поправить */
   const _useState153 = useState(null),
     _useState154 = _slicedToArray(_useState153, 2),
-    manualPest = _useState154[0],
-    setManualPest = _useState154[1];
-  const _useState155 = useState(false),
+    roundGroupPick = _useState154[0],
+    setRoundGroupPick = _useState154[1];
+  /* null — форма закрыта, "" — открыта, но вредитель ещё не выбран */
+  const _useState155 = useState(null),
     _useState156 = _slicedToArray(_useState155, 2),
-    repotOpen = _useState156[0],
-    setRepotOpen = _useState156[1];
-  const _useState157 = useState(plant.qa || []),
+    manualPest = _useState156[0],
+    setManualPest = _useState156[1];
+  const _useState157 = useState(false),
     _useState158 = _slicedToArray(_useState157, 2),
-    qa = _useState158[0],
-    setQa = _useState158[1];
-  const _useState159 = useState(""),
+    repotOpen = _useState158[0],
+    setRepotOpen = _useState158[1];
+  const _useState159 = useState(plant.qa || []),
     _useState160 = _slicedToArray(_useState159, 2),
-    qaInput = _useState160[0],
-    setQaInput = _useState160[1];
-  const _useState161 = useState(false),
+    qa = _useState160[0],
+    setQa = _useState160[1];
+  const _useState161 = useState(""),
     _useState162 = _slicedToArray(_useState161, 2),
-    qaBusy = _useState162[0],
-    setQaBusy = _useState162[1];
+    qaInput = _useState162[0],
+    setQaInput = _useState162[1];
   const _useState163 = useState(false),
     _useState164 = _slicedToArray(_useState163, 2),
-    showPassport = _useState164[0],
-    setShowPassport = _useState164[1];
+    qaBusy = _useState164[0],
+    setQaBusy = _useState164[1];
   const _useState165 = useState(false),
     _useState166 = _slicedToArray(_useState165, 2),
-    careEdit = _useState166[0],
-    setCareEdit = _useState166[1];
+    showPassport = _useState166[0],
+    setShowPassport = _useState166[1];
   const _useState167 = useState(false),
     _useState168 = _slicedToArray(_useState167, 2),
-    storyEdit = _useState168[0],
-    setStoryEdit = _useState168[1];
-  const _useState169 = useState(""),
+    careEdit = _useState168[0],
+    setCareEdit = _useState168[1];
+  const _useState169 = useState(false),
     _useState170 = _slicedToArray(_useState169, 2),
-    storyText = _useState170[0],
-    setStoryText = _useState170[1];
-  const _useState171 = useState(false),
+    storyEdit = _useState170[0],
+    setStoryEdit = _useState170[1];
+  const _useState171 = useState(""),
     _useState172 = _slicedToArray(_useState171, 2),
-    cardBusy = _useState172[0],
-    setCardBusy = _useState172[1];
+    storyText = _useState172[0],
+    setStoryText = _useState172[1];
+  const _useState173 = useState(false),
+    _useState174 = _slicedToArray(_useState173, 2),
+    cardBusy = _useState174[0],
+    setCardBusy = _useState174[1];
   const galFileRef = useRef(null);
   const galCamRef = useRef(null);
   const diagRef = useRef(null);
@@ -7359,6 +7591,10 @@ function PlantView(props) {
     p: (allPlants || []).find(x => x.id === m.plantId)
   })).filter(x => x.p) : [];
   const tSince = treat;
+  /* Что чем лечить — местное знание: таблица групп, полка и прошлый курс */
+  const chem = myOutbreak ? chemAdvice(myOutbreak, inventory, outbreaks) : null;
+  const roundG = roundGroupPick || guessGroup(roundProduct);
+  const roundWrong = roundG && myOutbreak && !groupWorksOn(roundG, myOutbreak.pest) ? substGroup(roundG) : null;
   const first = gallery.length > 1 ? gallery[gallery.length - 1] : null;
   const last = gallery.length > 1 ? gallery[0] : null;
   const spanMonths = first && last ? Math.max(1, Math.round((new Date(last.date) - new Date(first.date)) / (30.44 * 86400000))) : 0;
@@ -7770,7 +8006,28 @@ function PlantView(props) {
       marginBottom: 10,
       lineHeight: 1.5
     }
-  }, pest(manualPest).check ? "Проверьте: ".concat(pest(manualPest).check, " ") : "", pest(manualPest).note), /*#__PURE__*/React.createElement("div", {
+  }, pest(manualPest).check ? "Проверьте: ".concat(pest(manualPest).check, " ") : "", pest(manualPest).note), manualPest && manualPest !== "other" && (() => {
+    const sh = shelfFor(manualPest, inventory);
+    const all = groupsForPest(manualPest).main;
+    const need = all.filter(g => g.indoor !== false).length ? all.filter(g => g.indoor !== false) : all;
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...sans,
+        fontSize: 13,
+        color: C.moss,
+        marginBottom: 10,
+        lineHeight: 1.55
+      }
+    }, "Понадобится: ", need.map(g => g.t).join(" или "), " (", need.map(g => g.subs).join("; "), ").", sh.fits.length > 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: C.ink
+      }
+    }, " На полке есть: ", sh.fits.map(f => f.item.name).join(", "), "."), sh.fits.length === 0 && sh.wrong.length > 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: C.sunText
+      }
+    }, " Из средств на полке только ", sh.wrong.map(f => "".concat(f.item.name, " (").concat(groupT(f.group), ")")).join(", "), " — здесь не поможет."));
+  })(), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -8029,7 +8286,103 @@ function PlantView(props) {
       lineHeight: 1.55,
       marginBottom: 10
     }
-  }, pest(tSince.pest).note, pest(tSince.pest).check ? " Как проверять: ".concat(pest(tSince.pest).check) : ""), tSince.plan && tSince.plan.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, pest(tSince.pest).note, pest(tSince.pest).check ? " Как проверять: ".concat(pest(tSince.pest).check) : ""), chem && chem.main.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.paperDeep,
+      border: "1px solid ".concat(C.line),
+      borderRadius: R.md,
+      padding: 12,
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...sans,
+      fontSize: 11.5,
+      color: C.sageText,
+      letterSpacing: 0.5,
+      textTransform: "uppercase",
+      marginBottom: 6
+    }
+  }, "Чем обрабатывать"), chem.main.map(g => {
+    const stale = chem.prevGroups.indexOf(g.v) >= 0;
+    return /*#__PURE__*/React.createElement("div", {
+      key: g.v,
+      style: {
+        ...sans,
+        fontSize: 13.5,
+        color: C.ink,
+        lineHeight: 1.55,
+        marginBottom: 6
+      }
+    }, /*#__PURE__*/React.createElement("b", {
+      style: {
+        fontWeight: 600
+      }
+    }, g.t), " — ", g.subs, /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: C.sageText
+      }
+    }, " · например ", g.examples), stale && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: C.sunText
+      }
+    }, " · этим шёл прошлый курс"), g.indoor === false && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: C.sunText
+      }
+    }, " · в комнате не применять: резкий стойкий запах, только балкон или вне дома"), g.catRisk && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: C.sunText
+      }
+    }, " · при кошке в доме лучше другая группа"));
+  }), chem.aux.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...sans,
+      fontSize: 12.5,
+      color: C.sageText,
+      lineHeight: 1.5,
+      marginBottom: 6
+    }
+  }, "Вспомогательно: ", chem.aux.map(g => g.t + " (" + g.subs + ")").join(", "), " — смывают и душат, но курс ими не закрывают."), chem.shelf.fits.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...sans,
+      fontSize: 13.5,
+      color: C.moss,
+      lineHeight: 1.55,
+      marginTop: 8
+    }
+  }, "У вас на полке: ", chem.shelf.fits.map((f, i) => /*#__PURE__*/React.createElement(React.Fragment, {
+    key: f.item.id
+  }, i > 0 && ", ", /*#__PURE__*/React.createElement("b", {
+    style: {
+      fontWeight: 600,
+      color: C.ink
+    }
+  }, f.item.name), " (", groupT(f.group), ")")), " — подходит."), chem.prev && chem.prevGroups.length > 0 && chem.fresh.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...sans,
+      fontSize: 13,
+      color: C.sunText,
+      lineHeight: 1.55,
+      marginTop: 8
+    }
+  }, "Прошлый курс от этого вредителя шёл на группе «", chem.prevGroups.map(groupT).join(", "), "»", chem.prev.startedAt ? " (".concat(fmtMonth(String(chem.prev.startedAt).slice(0, 7)), ")") : "", ". Если вредитель вернулся быстро, лучше взять другую группу: ", chem.fresh.map(g => "".concat(g.t, " (").concat(g.examples, ")")).join(" или "), "."), chem.shelf.wrong.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...sans,
+      fontSize: 12.5,
+      color: C.sageText,
+      lineHeight: 1.5,
+      marginTop: 8
+    }
+  }, "Не поможет: ", chem.shelf.wrong.map(f => "".concat(f.item.name, " (").concat(groupT(f.group), ")")).join(", "), tSince.pest === "mite" ? " — по клещу неоникотиноиды и почвенные средства не работают." : " — по этому вредителю группа не действует."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...sans,
+      fontSize: 12,
+      color: C.sageText,
+      lineHeight: 1.5,
+      marginTop: 8
+    }
+  }, "Дозу приложение не называет намеренно — она разная у каждой марки, смотрите этикетку. Внутри курса группу держим одну, меняем между курсами.")), tSince.plan && tSince.plan.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       ...sans,
       fontSize: 14,
@@ -8127,15 +8480,45 @@ function PlantView(props) {
       minWidth: 150
     },
     value: roundProduct,
-    onChange: e => setRoundProduct(e.target.value),
-    placeholder: "чем обработали (д.в.)"
-  }), /*#__PURE__*/React.createElement(Btn, {
+    onChange: e => {
+      setRoundProduct(e.target.value);
+      setRoundGroupPick(null);
+    },
+    placeholder: "чем обработали (название)"
+  }), roundProduct.trim() && /*#__PURE__*/React.createElement("div", {
+    style: {
+      flexBasis: "100%",
+      ...sans,
+      fontSize: 12.5,
+      lineHeight: 1.5
+    }
+  }, roundWrong ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.blossomText
+    }
+  }, roundWrong.t, " (", roundWrong.subs, ") против этого вредителя не работают", tSince.pest === "mite" ? ": клещ не насекомое, средства для насекомых его не берут" : "", ". Отметить можно, но обработка уйдёт впустую — нужны ", groupsForPest(tSince.pest).main.map(g => g.t).join(" или "), ".") : roundG ? /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.sageText
+    }
+  }, "Это ", groupT(roundG), " — запомню группу, чтобы в следующем курсе предложить другую.") : /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: C.sageText
+    }
+  }, "Не узнала вещество. Если знаете группу, отметьте — тогда ротация посчитается:", " ", SUBST_GROUPS.filter(g => !g.aux).map(g => /*#__PURE__*/React.createElement(Link, {
+    key: g.v,
+    onClick: () => setRoundGroupPick(g.v),
+    style: {
+      fontSize: 12.5,
+      marginRight: 8
+    }
+  }, g.t)))), /*#__PURE__*/React.createElement(Btn, {
     small: true,
     tone: "moss",
     onClick: () => {
-      onRound(roundProduct, roundPicked || zoneMates.map(z => z.m.plantId));
+      onRound(roundProduct, roundPicked || zoneMates.map(z => z.m.plantId), roundG);
       setRoundProduct("");
       setRoundPicked(null);
+      setRoundGroupPick(null);
     }
   }, "Обработка сделана"), /*#__PURE__*/React.createElement(Btn, {
     small: true,
@@ -9289,16 +9672,16 @@ function CareEditor(_ref36) {
     onCancel = _ref36.onCancel;
   const base = plant.care || {};
   const cur = careOf(plant);
-  const _useState173 = useState(() => {
+  const _useState175 = useState(() => {
       const o = {};
       CARE_FIELDS.forEach(f => {
         o[f.k] = cur[f.k] == null ? "" : String(cur[f.k]);
       });
       return o;
     }),
-    _useState174 = _slicedToArray(_useState173, 2),
-    vals = _useState174[0],
-    setVals = _useState174[1];
+    _useState176 = _slicedToArray(_useState175, 2),
+    vals = _useState176[0],
+    setVals = _useState176[1];
   const user = plant.careUser || {};
   return /*#__PURE__*/React.createElement("div", {
     className: "reveal",
@@ -9386,26 +9769,26 @@ function RepotForm(_ref37) {
   let plant = _ref37.plant,
     onSave = _ref37.onSave,
     onCancel = _ref37.onCancel;
-  const _useState175 = useState(plant.potCm ? String(plant.potCm) : ""),
-    _useState176 = _slicedToArray(_useState175, 2),
-    potCm = _useState176[0],
-    setPotCm = _useState176[1];
-  const _useState177 = useState(plant.potMaterial || "plastic"),
+  const _useState177 = useState(plant.potCm ? String(plant.potCm) : ""),
     _useState178 = _slicedToArray(_useState177, 2),
-    potMaterial = _useState178[0],
-    setPotMaterial = _useState178[1];
-  const _useState179 = useState(plant.drainage !== false),
+    potCm = _useState178[0],
+    setPotCm = _useState178[1];
+  const _useState179 = useState(plant.potMaterial || "plastic"),
     _useState180 = _slicedToArray(_useState179, 2),
-    drainage = _useState180[0],
-    setDrainage = _useState180[1];
-  const _useState181 = useState(plant.substrate || "universal"),
+    potMaterial = _useState180[0],
+    setPotMaterial = _useState180[1];
+  const _useState181 = useState(plant.drainage !== false),
     _useState182 = _slicedToArray(_useState181, 2),
-    substrate = _useState182[0],
-    setSubstrate = _useState182[1];
-  const _useState183 = useState(new Date().toISOString().slice(0, 7)),
+    drainage = _useState182[0],
+    setDrainage = _useState182[1];
+  const _useState183 = useState(plant.substrate || "universal"),
     _useState184 = _slicedToArray(_useState183, 2),
-    when = _useState184[0],
-    setWhen = _useState184[1];
+    substrate = _useState184[0],
+    setSubstrate = _useState184[1];
+  const _useState185 = useState(new Date().toISOString().slice(0, 7)),
+    _useState186 = _slicedToArray(_useState185, 2),
+    when = _useState186[0],
+    setWhen = _useState186[1];
   const step = plant.care && plant.care.potStepCm || 2;
   return /*#__PURE__*/React.createElement("div", {
     className: "reveal",
@@ -9501,57 +9884,57 @@ function EditPlant(_ref38) {
     onSave = _ref38.onSave,
     onCancel = _ref38.onCancel,
     showToast = _ref38.showToast;
-  const _useState185 = useState(plant.name),
-    _useState186 = _slicedToArray(_useState185, 2),
-    eName = _useState186[0],
-    setEName = _useState186[1];
-  const _useState187 = useState(plant.nickname || ""),
+  const _useState187 = useState(plant.name),
     _useState188 = _slicedToArray(_useState187, 2),
-    eNickname = _useState188[0],
-    setENickname = _useState188[1];
-  const _useState189 = useState(plant.ownedSince || ""),
+    eName = _useState188[0],
+    setEName = _useState188[1];
+  const _useState189 = useState(plant.nickname || ""),
     _useState190 = _slicedToArray(_useState189, 2),
-    eOwned = _useState190[0],
-    setEOwned = _useState190[1];
-  const _useState191 = useState(plant.origin || "bought"),
+    eNickname = _useState190[0],
+    setENickname = _useState190[1];
+  const _useState191 = useState(plant.ownedSince || ""),
     _useState192 = _slicedToArray(_useState191, 2),
-    eOrigin = _useState192[0],
-    setEOrigin = _useState192[1];
-  const _useState193 = useState(plant.parentId || ""),
+    eOwned = _useState192[0],
+    setEOwned = _useState192[1];
+  const _useState193 = useState(plant.origin || "bought"),
     _useState194 = _slicedToArray(_useState193, 2),
-    eParentId = _useState194[0],
-    setEParentId = _useState194[1];
-  const _useState195 = useState(!!plant.lamp),
+    eOrigin = _useState194[0],
+    setEOrigin = _useState194[1];
+  const _useState195 = useState(plant.parentId || ""),
     _useState196 = _slicedToArray(_useState195, 2),
-    eLamp = _useState196[0],
-    setELamp = _useState196[1];
+    eParentId = _useState196[0],
+    setEParentId = _useState196[1];
+  const _useState197 = useState(!!plant.lamp),
+    _useState198 = _slicedToArray(_useState197, 2),
+    eLamp = _useState198[0],
+    setELamp = _useState198[1];
   /* Горшок правится здесь, а не только в «Отметить пересадку»: раньше, чтобы
      записать диаметр у давно стоящего растения, приходилось изображать
      пересадку — а она пишет запись в дневник и блокирует подкормки. */
-  const _useState197 = useState(plant.potCm ? String(plant.potCm) : ""),
-    _useState198 = _slicedToArray(_useState197, 2),
-    ePotCm = _useState198[0],
-    setEPotCm = _useState198[1];
-  const _useState199 = useState(plant.potMaterial || "plastic"),
+  const _useState199 = useState(plant.potCm ? String(plant.potCm) : ""),
     _useState200 = _slicedToArray(_useState199, 2),
-    ePotMaterial = _useState200[0],
-    setEPotMaterial = _useState200[1];
-  const _useState201 = useState(plant.drainage !== false),
+    ePotCm = _useState200[0],
+    setEPotCm = _useState200[1];
+  const _useState201 = useState(plant.potMaterial || "plastic"),
     _useState202 = _slicedToArray(_useState201, 2),
-    eDrainage = _useState202[0],
-    setEDrainage = _useState202[1];
-  const _useState203 = useState(plant.substrate || "universal"),
+    ePotMaterial = _useState202[0],
+    setEPotMaterial = _useState202[1];
+  const _useState203 = useState(plant.drainage !== false),
     _useState204 = _slicedToArray(_useState203, 2),
-    eSubstrate = _useState204[0],
-    setESubstrate = _useState204[1];
-  const _useState205 = useState(null),
+    eDrainage = _useState204[0],
+    setEDrainage = _useState204[1];
+  const _useState205 = useState(plant.substrate || "universal"),
     _useState206 = _slicedToArray(_useState205, 2),
-    ePhoto = _useState206[0],
-    setEPhoto = _useState206[1];
-  const _useState207 = useState(""),
+    eSubstrate = _useState206[0],
+    setESubstrate = _useState206[1];
+  const _useState207 = useState(null),
     _useState208 = _slicedToArray(_useState207, 2),
-    pq = _useState208[0],
-    setPq = _useState208[1];
+    ePhoto = _useState208[0],
+    setEPhoto = _useState208[1];
+  const _useState209 = useState(""),
+    _useState210 = _slicedToArray(_useState209, 2),
+    pq = _useState210[0],
+    setPq = _useState210[1];
   const fileRef = useRef(null);
   const camRef = useRef(null);
   async function handlePhoto(f) {
@@ -9851,26 +10234,26 @@ function ChatView(_ref39) {
     outbreaks = _ref39.outbreaks,
     messages = _ref39.messages,
     onMessages = _ref39.onMessages;
-  const _useState209 = useState(""),
-    _useState210 = _slicedToArray(_useState209, 2),
-    input = _useState210[0],
-    setInput = _useState210[1];
-  const _useState211 = useState(false),
+  const _useState211 = useState(""),
     _useState212 = _slicedToArray(_useState211, 2),
-    busy = _useState212[0],
-    setBusy = _useState212[1];
-  const _useState213 = useState(null),
+    input = _useState212[0],
+    setInput = _useState212[1];
+  const _useState213 = useState(false),
     _useState214 = _slicedToArray(_useState213, 2),
-    pendingImage = _useState214[0],
-    setPendingImage = _useState214[1];
+    busy = _useState214[0],
+    setBusy = _useState214[1];
+  const _useState215 = useState(null),
+    _useState216 = _slicedToArray(_useState215, 2),
+    pendingImage = _useState216[0],
+    setPendingImage = _useState216[1];
   const chatWeightKb = Math.round((messages || []).reduce((acc, m) => acc + (m.image ? m.image.length : 0), 0) / 1024);
   const fileRef = useRef(null);
   const camRef = useRef(null);
   const srcChoose = useRef(null);
-  const _useState215 = useState(false),
-    _useState216 = _slicedToArray(_useState215, 2),
-    srcOpen = _useState216[0],
-    setSrcOpen = _useState216[1];
+  const _useState217 = useState(false),
+    _useState218 = _slicedToArray(_useState217, 2),
+    srcOpen = _useState218[0],
+    setSrcOpen = _useState218[1];
   const bottomRef = useRef(null);
   useEffect(() => {
     if (bottomRef.current) bottomRef.current.scrollIntoView({
@@ -10166,14 +10549,14 @@ function WishlistView(_ref40) {
     onVerdict = _ref40.onVerdict,
     onPlant = _ref40.onPlant,
     showToast = _ref40.showToast;
-  const _useState217 = useState(""),
-    _useState218 = _slicedToArray(_useState217, 2),
-    name = _useState218[0],
-    setName = _useState218[1];
-  const _useState219 = useState(null),
+  const _useState219 = useState(""),
     _useState220 = _slicedToArray(_useState219, 2),
-    busyId = _useState220[0],
-    setBusyId = _useState220[1];
+    name = _useState220[0],
+    setName = _useState220[1];
+  const _useState221 = useState(null),
+    _useState222 = _slicedToArray(_useState221, 2),
+    busyId = _useState222[0],
+    setBusyId = _useState222[1];
   const fitColor = {
     good: C.sageText,
     maybe: C.sunText,
@@ -10350,10 +10733,10 @@ function SuppliesView(_ref41) {
     onRemoveInv = _ref41.onRemoveInv,
     onOpenPlant = _ref41.onOpenPlant,
     showToast = _ref41.showToast;
-  const _useState221 = useState("needs"),
-    _useState222 = _slicedToArray(_useState221, 2),
-    tab = _useState222[0],
-    setTab = _useState222[1];
+  const _useState223 = useState("needs"),
+    _useState224 = _slicedToArray(_useState223, 2),
+    tab = _useState224[0],
+    setTab = _useState224[1];
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 18,
@@ -10410,18 +10793,18 @@ function NeedsView(_ref42) {
     onRemove = _ref42.onRemove,
     onOpenPlant = _ref42.onOpenPlant,
     showToast = _ref42.showToast;
-  const _useState223 = useState(""),
-    _useState224 = _slicedToArray(_useState223, 2),
-    text = _useState224[0],
-    setText = _useState224[1];
-  const _useState225 = useState(false),
+  const _useState225 = useState(""),
     _useState226 = _slicedToArray(_useState225, 2),
-    aiBusy = _useState226[0],
-    setAiBusy = _useState226[1];
-  const _useState227 = useState(""),
+    text = _useState226[0],
+    setText = _useState226[1];
+  const _useState227 = useState(false),
     _useState228 = _slicedToArray(_useState227, 2),
-    order = _useState228[0],
-    setOrder = _useState228[1];
+    aiBusy = _useState228[0],
+    setAiBusy = _useState228[1];
+  const _useState229 = useState(""),
+    _useState230 = _slicedToArray(_useState229, 2),
+    order = _useState230[0],
+    setOrder = _useState230[1];
   const general = needs.filter(n => !n.plantId || !plants.find(p => p.id === n.plantId));
   const byPlant = plants.map(p => ({
     p,
@@ -10631,62 +11014,72 @@ function InventoryView(_ref45) {
     onOpenPlant = _ref45.onOpenPlant,
     onAddNeed = _ref45.onAddNeed,
     showToast = _ref45.showToast;
-  const _useState229 = useState(""),
-    _useState230 = _slicedToArray(_useState229, 2),
-    name = _useState230[0],
-    setName = _useState230[1];
-  const _useState231 = useState("feed"),
+  const _useState231 = useState(""),
     _useState232 = _slicedToArray(_useState231, 2),
-    cat = _useState232[0],
-    setCat = _useState232[1];
-  const _useState233 = useState(""),
+    name = _useState232[0],
+    setName = _useState232[1];
+  const _useState233 = useState("feed"),
     _useState234 = _slicedToArray(_useState233, 2),
-    note = _useState234[0],
-    setNote = _useState234[1];
+    cat = _useState234[0],
+    setCat = _useState234[1];
   const _useState235 = useState(""),
     _useState236 = _slicedToArray(_useState235, 2),
-    uses = _useState236[0],
-    setUses = _useState236[1];
-  const _useState237 = useState(false),
+    note = _useState236[0],
+    setNote = _useState236[1];
+  const _useState237 = useState(""),
     _useState238 = _slicedToArray(_useState237, 2),
-    adding = _useState238[0],
-    setAdding = _useState238[1];
+    uses = _useState238[0],
+    setUses = _useState238[1];
+  /* null — группу не спрашивали, "" — «не средство от вредителей» */
   const _useState239 = useState(null),
     _useState240 = _slicedToArray(_useState239, 2),
-    busyId = _useState240[0],
-    setBusyId = _useState240[1];
-  const _useState241 = useState(null),
+    grp = _useState240[0],
+    setGrp = _useState240[1];
+  const _useState241 = useState(false),
     _useState242 = _slicedToArray(_useState241, 2),
-    editId = _useState242[0],
-    setEditId = _useState242[1];
+    adding = _useState242[0],
+    setAdding = _useState242[1];
   const _useState243 = useState(null),
     _useState244 = _slicedToArray(_useState243, 2),
-    openId = _useState244[0],
-    setOpenId = _useState244[1];
+    busyId = _useState244[0],
+    setBusyId = _useState244[1];
+  const _useState245 = useState(null),
+    _useState246 = _slicedToArray(_useState245, 2),
+    editId = _useState246[0],
+    setEditId = _useState246[1];
+  const _useState247 = useState(null),
+    _useState248 = _slicedToArray(_useState247, 2),
+    openId = _useState248[0],
+    setOpenId = _useState248[1];
   /* Категории сворачиваются — так было в первой версии и потерялось при
      переписывании. Но раскрыты по умолчанию: свёрнутая полка выглядела пустой. */
-  const _useState245 = useState({}),
-    _useState246 = _slicedToArray(_useState245, 2),
-    closedCats = _useState246[0],
-    setClosedCats = _useState246[1];
-  const _useState247 = useState(""),
-    _useState248 = _slicedToArray(_useState247, 2),
-    eName = _useState248[0],
-    setEName = _useState248[1];
-  const _useState249 = useState(""),
+  const _useState249 = useState({}),
     _useState250 = _slicedToArray(_useState249, 2),
-    eNote = _useState250[0],
-    setENote = _useState250[1];
-  const _useState251 = useState("other"),
+    closedCats = _useState250[0],
+    setClosedCats = _useState250[1];
+  const _useState251 = useState(""),
     _useState252 = _slicedToArray(_useState251, 2),
-    eCat = _useState252[0],
-    setECat = _useState252[1];
+    eName = _useState252[0],
+    setEName = _useState252[1];
+  const _useState253 = useState(""),
+    _useState254 = _slicedToArray(_useState253, 2),
+    eNote = _useState254[0],
+    setENote = _useState254[1];
+  const _useState255 = useState("other"),
+    _useState256 = _slicedToArray(_useState255, 2),
+    eCat = _useState256[0],
+    setECat = _useState256[1];
+  const _useState257 = useState(null),
+    _useState258 = _slicedToArray(_useState257, 2),
+    eGrp = _useState258[0],
+    setEGrp = _useState258[1];
   function add() {
     if (!name.trim()) return;
-    onAdd(name, cat, note, uses);
+    onAdd(name, cat, note, uses, cat === "care" ? grp === null ? guessGroup(name) : grp : undefined);
     setName("");
     setNote("");
     setUses("");
+    setGrp(null);
     setAdding(false);
   }
   async function match(item) {
@@ -10782,6 +11175,7 @@ function InventoryView(_ref45) {
     onChange: e => {
       setName(e.target.value);
       setCat(guessCategory(e.target.value));
+      setGrp(null);
     },
     placeholder: "Bona Forte для декоративно-лиственных / Фитоверм / грунт для ароидных 5 л…"
   }), /*#__PURE__*/React.createElement("div", {
@@ -10797,7 +11191,38 @@ function InventoryView(_ref45) {
     icon: c.icon,
     active: cat === c.v,
     onClick: () => setCat(c.v)
-  }, c.t))), /*#__PURE__*/React.createElement("div", {
+  }, c.t))), cat === "care" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...sans,
+      fontSize: 12.5,
+      color: C.sageText,
+      marginBottom: 6,
+      lineHeight: 1.5
+    }
+  }, "Действующее вещество — чтобы приложение знало, кому средство поможет и когда пора менять группу:"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      flexWrap: "wrap"
+    }
+  }, SUBST_GROUPS.map(g => {
+    const cur = grp === null ? guessGroup(name) : grp;
+    return /*#__PURE__*/React.createElement(Chip, {
+      key: g.v,
+      small: true,
+      active: cur === g.v,
+      onClick: () => setGrp(cur === g.v ? "" : g.v),
+      label: g.subs
+    }, g.t);
+  }), /*#__PURE__*/React.createElement(Chip, {
+    small: true,
+    active: (grp === null ? guessGroup(name) : grp) === null || (grp === null ? guessGroup(name) : grp) === "",
+    onClick: () => setGrp("")
+  }, "не от вредителей"))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -10965,7 +11390,7 @@ function InventoryView(_ref45) {
           color: C.sageText,
           marginTop: 3
         }
-      }, i.note, left !== null && (i.note ? " · " : "") + "осталось примерно на ".concat(left, " ").concat(plural(left, "раз", "раза", "раз")))), open && /*#__PURE__*/React.createElement("div", {
+      }, invGroupOf(i) && (substGroup(invGroupOf(i)) || {}).subs, invGroupOf(i) && (i.note || left !== null) ? " · " : "", i.note, left !== null && (i.note ? " · " : "") + "осталось примерно на ".concat(left, " ").concat(plural(left, "раз", "раза", "раз")))), open && /*#__PURE__*/React.createElement("div", {
         className: "reveal",
         style: {
           padding: "0 14px 14px"
@@ -10997,7 +11422,24 @@ function InventoryView(_ref45) {
         small: true,
         active: eCat === c2.v,
         onClick: () => setECat(c2.v)
-      }, c2.t))), /*#__PURE__*/React.createElement("div", {
+      }, c2.t))), eCat === "care" && /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 6,
+          flexWrap: "wrap",
+          marginBottom: 10
+        }
+      }, SUBST_GROUPS.map(g => /*#__PURE__*/React.createElement(Chip, {
+        key: g.v,
+        small: true,
+        active: eGrp === g.v,
+        onClick: () => setEGrp(eGrp === g.v ? "" : g.v),
+        label: g.subs
+      }, g.t)), /*#__PURE__*/React.createElement(Chip, {
+        small: true,
+        active: eGrp === "" || eGrp === null,
+        onClick: () => setEGrp("")
+      }, "не от вредителей")), /*#__PURE__*/React.createElement("div", {
         style: {
           display: "flex",
           gap: 8
@@ -11009,7 +11451,8 @@ function InventoryView(_ref45) {
             onPatch(i.id, {
               name: eName.trim(),
               note: eNote.trim(),
-              category: eCat
+              category: eCat,
+              substanceGroup: eCat === "care" ? eGrp === null ? guessGroup(eName) : eGrp : ""
             });
             setEditId(null);
           }
@@ -11101,6 +11544,7 @@ function InventoryView(_ref45) {
           setEName(i.name);
           setENote(i.note || "");
           setECat(i.category || "other");
+          setEGrp(i.substanceGroup === undefined ? guessGroup(i.name) : i.substanceGroup);
         }
       }, "изменить"), /*#__PURE__*/React.createElement(Link, {
         tone: "danger",
@@ -11852,11 +12296,11 @@ function ProfileSetup(props) {
     storageStats = props.storageStats,
     onOpenPlant = props.onOpenPlant,
     showToast = props.showToast;
-  const _useState253 = useState("flat"),
-    _useState254 = _slicedToArray(_useState253, 2),
-    tab = _useState254[0],
-    setTab = _useState254[1];
-  const _useState255 = useState(profile && profile.spots && profile.spots.length > 0 ? profile.spots.map(s => ({
+  const _useState259 = useState("flat"),
+    _useState260 = _slicedToArray(_useState259, 2),
+    tab = _useState260[0],
+    setTab = _useState260[1];
+  const _useState261 = useState(profile && profile.spots && profile.spots.length > 0 ? profile.spots.map(s => ({
       id: s.id || uid(),
       label: s.label || "",
       orientation: s.orientation || "south",
@@ -11873,85 +12317,85 @@ function ProfileSetup(props) {
       glazed: null,
       balconyKind: null
     }]),
-    _useState256 = _slicedToArray(_useState255, 2),
-    spots = _useState256[0],
-    setSpots = _useState256[1];
-  const _useState257 = useState(null),
-    _useState258 = _slicedToArray(_useState257, 2),
-    ping = _useState258[0],
-    setPing = _useState258[1];
-  const _useState259 = useState(false),
-    _useState260 = _slicedToArray(_useState259, 2),
-    pingBusy = _useState260[0],
-    setPingBusy = _useState260[1];
-  const _useState261 = useState(null),
     _useState262 = _slicedToArray(_useState261, 2),
-    askRes = _useState262[0],
-    setAskRes = _useState262[1];
-  const _useState263 = useState(false),
+    spots = _useState262[0],
+    setSpots = _useState262[1];
+  const _useState263 = useState(null),
     _useState264 = _slicedToArray(_useState263, 2),
-    askBusy = _useState264[0],
-    setAskBusy = _useState264[1];
-  const _useState265 = useState(profile && profile.notes || ""),
+    ping = _useState264[0],
+    setPing = _useState264[1];
+  const _useState265 = useState(false),
     _useState266 = _slicedToArray(_useState265, 2),
-    notes = _useState266[0],
-    setNotes = _useState266[1];
-  const _useState267 = useState(profile && profile.city || ""),
+    pingBusy = _useState266[0],
+    setPingBusy = _useState266[1];
+  const _useState267 = useState(null),
     _useState268 = _slicedToArray(_useState267, 2),
-    city = _useState268[0],
-    setCity = _useState268[1];
-  const _useState269 = useState(profile && profile.person || ""),
+    askRes = _useState268[0],
+    setAskRes = _useState268[1];
+  const _useState269 = useState(false),
     _useState270 = _slicedToArray(_useState269, 2),
-    person = _useState270[0],
-    setPerson = _useState270[1];
-  const _useState271 = useState(profile && profile.water || ""),
+    askBusy = _useState270[0],
+    setAskBusy = _useState270[1];
+  const _useState271 = useState(profile && profile.notes || ""),
     _useState272 = _slicedToArray(_useState271, 2),
-    waterKind = _useState272[0],
-    setWaterKind = _useState272[1];
-  const _useState273 = useState(!!(profile && profile.heatingOn)),
+    notes = _useState272[0],
+    setNotes = _useState272[1];
+  const _useState273 = useState(profile && profile.city || ""),
     _useState274 = _slicedToArray(_useState273, 2),
-    heatingOn = _useState274[0],
-    setHeatingOn = _useState274[1];
-  const _useState275 = useState(profile && profile.careDays || []),
+    city = _useState274[0],
+    setCity = _useState274[1];
+  const _useState275 = useState(profile && profile.person || ""),
     _useState276 = _slicedToArray(_useState275, 2),
-    careDays = _useState276[0],
-    setCareDays = _useState276[1];
-  const _useState277 = useState(profile && profile.notifyHour != null ? profile.notifyHour : 9),
+    person = _useState276[0],
+    setPerson = _useState276[1];
+  const _useState277 = useState(profile && profile.water || ""),
     _useState278 = _slicedToArray(_useState277, 2),
-    notifyHour = _useState278[0],
-    setNotifyHour = _useState278[1];
-  const _useState279 = useState(profile && profile.theme || "auto"),
+    waterKind = _useState278[0],
+    setWaterKind = _useState278[1];
+  const _useState279 = useState(!!(profile && profile.heatingOn)),
     _useState280 = _slicedToArray(_useState279, 2),
-    theme = _useState280[0],
-    setTheme = _useState280[1];
-  const _useState281 = useState(false),
+    heatingOn = _useState280[0],
+    setHeatingOn = _useState280[1];
+  const _useState281 = useState(profile && profile.careDays || []),
     _useState282 = _slicedToArray(_useState281, 2),
-    cityBusy = _useState282[0],
-    setCityBusy = _useState282[1];
-  const _useState283 = useState(null),
+    careDays = _useState282[0],
+    setCareDays = _useState282[1];
+  const _useState283 = useState(profile && profile.notifyHour != null ? profile.notifyHour : 9),
     _useState284 = _slicedToArray(_useState283, 2),
-    cityCheck = _useState284[0],
-    setCityCheck = _useState284[1];
-  const _useState285 = useState(false),
+    notifyHour = _useState284[0],
+    setNotifyHour = _useState284[1];
+  const _useState285 = useState(profile && profile.theme || "auto"),
     _useState286 = _slicedToArray(_useState285, 2),
-    auditBusy = _useState286[0],
-    setAuditBusy = _useState286[1];
-  const _useState287 = useState(null),
+    theme = _useState286[0],
+    setTheme = _useState286[1];
+  const _useState287 = useState(false),
     _useState288 = _slicedToArray(_useState287, 2),
-    audit = _useState288[0],
-    setAudit = _useState288[1];
-  const _useState289 = useState({}),
+    cityBusy = _useState288[0],
+    setCityBusy = _useState288[1];
+  const _useState289 = useState(null),
     _useState290 = _slicedToArray(_useState289, 2),
-    moved = _useState290[0],
-    setMoved = _useState290[1];
-  const _useState291 = useState(""),
+    cityCheck = _useState290[0],
+    setCityCheck = _useState290[1];
+  const _useState291 = useState(false),
     _useState292 = _slicedToArray(_useState291, 2),
-    connCode = _useState292[0],
-    setConnCode = _useState292[1];
-  const _useState293 = useState(false),
+    auditBusy = _useState292[0],
+    setAuditBusy = _useState292[1];
+  const _useState293 = useState(null),
     _useState294 = _slicedToArray(_useState293, 2),
-    connBusy = _useState294[0],
-    setConnBusy = _useState294[1];
+    audit = _useState294[0],
+    setAudit = _useState294[1];
+  const _useState295 = useState({}),
+    _useState296 = _slicedToArray(_useState295, 2),
+    moved = _useState296[0],
+    setMoved = _useState296[1];
+  const _useState297 = useState(""),
+    _useState298 = _slicedToArray(_useState297, 2),
+    connCode = _useState298[0],
+    setConnCode = _useState298[1];
+  const _useState299 = useState(false),
+    _useState300 = _slicedToArray(_useState299, 2),
+    connBusy = _useState300[0],
+    setConnBusy = _useState300[1];
   async function connectFirstRun() {
     if (connBusy || !connCode.trim()) return;
     setConnBusy(true);
@@ -11959,18 +12403,18 @@ function ProfileSetup(props) {
     /* При удаче экран сменится сам — профиль придёт из облака */
     if (!ok) setConnBusy(false);
   }
-  const _useState295 = useState(false),
-    _useState296 = _slicedToArray(_useState295, 2),
-    copied = _useState296[0],
-    setCopied = _useState296[1];
-  const _useState297 = useState(false),
-    _useState298 = _slicedToArray(_useState297, 2),
-    showStorage = _useState298[0],
-    setShowStorage = _useState298[1];
-  const _useState299 = useState(null),
-    _useState300 = _slicedToArray(_useState299, 2),
-    askLocal = _useState300[0],
-    setAskLocal = _useState300[1];
+  const _useState301 = useState(false),
+    _useState302 = _slicedToArray(_useState301, 2),
+    copied = _useState302[0],
+    setCopied = _useState302[1];
+  const _useState303 = useState(false),
+    _useState304 = _slicedToArray(_useState303, 2),
+    showStorage = _useState304[0],
+    setShowStorage = _useState304[1];
+  const _useState305 = useState(null),
+    _useState306 = _slicedToArray(_useState305, 2),
+    askLocal = _useState306[0],
+    setAskLocal = _useState306[1];
   const wpRef = useRef(null);
   async function checkCity() {
     const c = city.trim();
@@ -13062,25 +13506,27 @@ function ProfileSetup(props) {
 function HealthView(_ref53) {
   let outbreaks = _ref53.outbreaks,
     plants = _ref53.plants,
+    inventory = _ref53.inventory,
+    profile = _ref53.profile,
     onOpen = _ref53.onOpen,
     onBack = _ref53.onBack,
     onStart = _ref53.onStart;
-  const _useState301 = useState(false),
-    _useState302 = _slicedToArray(_useState301, 2),
-    findOpen = _useState302[0],
-    setFindOpen = _useState302[1];
-  const _useState303 = useState(""),
-    _useState304 = _slicedToArray(_useState303, 2),
-    fPest = _useState304[0],
-    setFPest = _useState304[1];
-  const _useState305 = useState(""),
-    _useState306 = _slicedToArray(_useState305, 2),
-    fZone = _useState306[0],
-    setFZone = _useState306[1];
-  const _useState307 = useState([]),
+  const _useState307 = useState(false),
     _useState308 = _slicedToArray(_useState307, 2),
-    fPicked = _useState308[0],
-    setFPicked = _useState308[1];
+    findOpen = _useState308[0],
+    setFindOpen = _useState308[1];
+  const _useState309 = useState(""),
+    _useState310 = _slicedToArray(_useState309, 2),
+    fPest = _useState310[0],
+    setFPest = _useState310[1];
+  const _useState311 = useState(""),
+    _useState312 = _slicedToArray(_useState311, 2),
+    fZone = _useState312[0],
+    setFZone = _useState312[1];
+  const _useState313 = useState([]),
+    _useState314 = _slicedToArray(_useState313, 2),
+    fPicked = _useState314[0],
+    setFPicked = _useState314[1];
   const byId = id => (plants || []).find(p => p.id === id);
   const nameOf = id => {
     const p = byId(id);
@@ -13189,7 +13635,29 @@ function HealthView(_ref53) {
       marginBottom: 12,
       lineHeight: 1.5
     }
-  }, "Проверьте: ", pest(fPest).check), /*#__PURE__*/React.createElement("div", {
+  }, "Проверьте: ", pest(fPest).check), fPest && fPest !== "other" && (() => {
+    const sh = shelfFor(fPest, inventory);
+    /* Вне дома работать нечем — фосфорорганику в списке «понадобится» не называем */
+    const all = groupsForPest(fPest).main;
+    const need = all.filter(g => g.indoor !== false).length ? all.filter(g => g.indoor !== false) : all;
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...sans,
+        fontSize: 13,
+        color: C.moss,
+        marginBottom: 12,
+        lineHeight: 1.55
+      }
+    }, "Понадобится: ", need.map(g => g.t).join(" или "), " (", need.map(g => g.subs).join("; "), ").", sh.fits.length > 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: C.ink
+      }
+    }, " На полке уже есть: ", sh.fits.map(f => f.item.name).join(", "), "."), sh.fits.length === 0 && sh.wrong.length > 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: C.sunText
+      }
+    }, " На полке из средств только ", sh.wrong.map(f => "".concat(f.item.name, " (").concat(groupT(f.group), ")")).join(", "), " — по этому вредителю не работает."));
+  })(), /*#__PURE__*/React.createElement("div", {
     style: {
       ...sans,
       fontSize: 13,
@@ -13365,7 +13833,35 @@ function HealthView(_ref53) {
         marginTop: 8,
         lineHeight: 1.5
       }
-    }, "В прошлую обработку пропустили: ", missed.map(nameOf).join(", "), ". Вредитель вернётся именно оттуда — в следующий раз лучше пройти всю зону разом."), /*#__PURE__*/React.createElement("div", {
+    }, "В прошлую обработку пропустили: ", missed.map(nameOf).join(", "), ". Вредитель вернётся именно оттуда — в следующий раз лучше пройти всю зону разом."), (() => {
+      /* Чем лечить — короткой строкой: что подходит, что уже на полке
+         и не повторяем ли группу прошлого курса. */
+      const ch = chemAdvice(o, inventory, outbreaks);
+      if (ch.main.length === 0) return null;
+      return /*#__PURE__*/React.createElement("div", {
+        style: {
+          ...sans,
+          fontSize: 13,
+          color: C.moss,
+          marginTop: 8,
+          lineHeight: 1.55
+        }
+      }, "Чем: ", (ch.main.filter(g => g.indoor !== false).length ? ch.main.filter(g => g.indoor !== false) : ch.main).map(g => g.t).join(", "), ch.shelf.fits.length > 0 && /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: C.ink
+        }
+      }, " · на полке уже есть: ", ch.shelf.fits.map(f => f.item.name).join(", ")), ch.repeat.length > 0 ? /*#__PURE__*/React.createElement("div", {
+        style: {
+          color: C.sunText,
+          marginTop: 4
+        }
+      }, "Этот курс идёт на той же группе, что и прошлый (", ch.repeat.map(groupT).join(", "), ") — к повторяющемуся веществу вредитель привыкает.") : ch.prevGroups.length > 0 && ch.fresh.length > 0 ? /*#__PURE__*/React.createElement("div", {
+        style: {
+          color: C.sageText,
+          marginTop: 4
+        }
+      }, "Прошлый курс шёл на группе «", ch.prevGroups.map(groupT).join(", "), "» — в этот раз лучше ", ch.fresh.map(g => g.t).join(" или "), " (", ch.fresh.map(g => g.examples).join("; "), ").") : null);
+    })(), /*#__PURE__*/React.createElement("div", {
       style: {
         ...sans,
         fontSize: 13,
@@ -13404,7 +13900,38 @@ function HealthView(_ref53) {
       margin: "8px 0 0",
       lineHeight: 1.55
     }
-  }, "Один и тот же вредитель возвращается — обычно дело в условиях, а не в невезении: сухой воздух от батарей для клеща, переувлажнённый грунт для грибного комарика.")), past.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "Один и тот же вредитель возвращается — обычно дело в условиях, а не в невезении: сухой воздух от батарей для клеща, переувлажнённый грунт для грибного комарика.")), (() => {
+    const last = past[0];
+    const why = last ? outbreakCause(last, plants, outbreaks, profile) : [];
+    if (why.length === 0) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 22,
+        background: C.paperDeep,
+        border: "1px solid ".concat(C.line),
+        borderRadius: R.lg,
+        padding: 16
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...sans,
+        fontSize: 11.5,
+        color: C.sageText,
+        letterSpacing: 0.5,
+        textTransform: "uppercase",
+        marginBottom: 6
+      }
+    }, "Разбор · ", pest(last.pest).t.toLowerCase(), ", ", fmtDate(last.startedAt)), why.map((line, i) => /*#__PURE__*/React.createElement("p", {
+      key: i,
+      style: {
+        ...sans,
+        fontSize: 14,
+        color: i === 0 ? C.ink : C.moss,
+        margin: "0 0 6px",
+        lineHeight: 1.6
+      }
+    }, line)));
+  })(), past.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 22
     }
@@ -13446,26 +13973,26 @@ function VacationView(_ref54) {
     weather = _ref54.weather,
     onBack = _ref54.onBack,
     showToast = _ref54.showToast;
-  const _useState309 = useState(null),
-    _useState310 = _slicedToArray(_useState309, 2),
-    prep = _useState310[0],
-    setPrep = _useState310[1];
-  const _useState311 = useState(false),
-    _useState312 = _slicedToArray(_useState311, 2),
-    prepBusy = _useState312[0],
-    setPrepBusy = _useState312[1];
-  const _useState313 = useState(false),
-    _useState314 = _slicedToArray(_useState313, 2),
-    showCal = _useState314[0],
-    setShowCal = _useState314[1];
-  const _useState315 = useState(today()),
+  const _useState315 = useState(null),
     _useState316 = _slicedToArray(_useState315, 2),
-    from = _useState316[0],
-    setFrom = _useState316[1];
-  const _useState317 = useState(isoDate(new Date(Date.now() + 13 * 86400000))),
+    prep = _useState316[0],
+    setPrep = _useState316[1];
+  const _useState317 = useState(false),
     _useState318 = _slicedToArray(_useState317, 2),
-    to = _useState318[0],
-    setTo = _useState318[1];
+    prepBusy = _useState318[0],
+    setPrepBusy = _useState318[1];
+  const _useState319 = useState(false),
+    _useState320 = _slicedToArray(_useState319, 2),
+    showCal = _useState320[0],
+    setShowCal = _useState320[1];
+  const _useState321 = useState(today()),
+    _useState322 = _slicedToArray(_useState321, 2),
+    from = _useState322[0],
+    setFrom = _useState322[1];
+  const _useState323 = useState(isoDate(new Date(Date.now() + 13 * 86400000))),
+    _useState324 = _slicedToArray(_useState323, 2),
+    to = _useState324[0],
+    setTo = _useState324[1];
   useEffect(() => {
     (async () => {
       try {
