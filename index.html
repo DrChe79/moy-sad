@@ -429,7 +429,7 @@ function applyTheme(mode) {
   } catch (e) {/* до монтирования — не страшно */}
   return dark;
 }
-const APP_VERSION = "18.09-13:18";
+const APP_VERSION = "18.09-13:48";
 
 /* localStorage хранит строки в UTF-16 — два байта на символ. Браузерные «5 МБ»
    это примерно 2,6 млн символов, а не 5 млн, как считала прежняя версия: порог
@@ -873,6 +873,117 @@ function SoftBlob(_ref3) {
     opacity: "0.45",
     d: "M64 24c14 0 30 12 30 32s-12 38-32 38-34-16-32-38 20-32 34-32z"
   }));
+}
+
+/* Плитка со счётчиком: крупная цифра, мелкая подпись, значок в своём кружке.
+   Подпись не обрезается многоточием — в 320 px при 200% шрифта она просто
+   переносится: лучше две строки, чем «стоимо…». */
+function StatTile(_ref4) {
+  let value = _ref4.value,
+    label = _ref4.label,
+    icon = _ref4.icon,
+    tone = _ref4.tone;
+  const soft = tone === "warn" ? C.blossomSoft : tone === "sun" ? C.paperDeep : C.sageSoft;
+  const ink = tone === "warn" ? C.blossomText : tone === "sun" ? C.sunText : C.moss;
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: C.card,
+      border: "1px solid ".concat(C.line),
+      borderRadius: R.md,
+      padding: "14px 16px",
+      display: "flex",
+      gap: 12,
+      alignItems: "flex-start"
+    }
+  }, icon && /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 34,
+      height: 34,
+      borderRadius: "50%",
+      background: soft,
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: icon,
+    size: 17,
+    color: ink
+  })), /*#__PURE__*/React.createElement("span", {
+    style: {
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...serif,
+      fontSize: 26,
+      color: C.ink,
+      lineHeight: 1.1,
+      display: "block"
+    }
+  }, value), /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...sans,
+      fontSize: 12,
+      color: C.moss,
+      marginTop: 4,
+      display: "block",
+      lineHeight: 1.4
+    }
+  }, label)));
+}
+
+/* Пустой экран не должен выглядеть недоделанным — он должен выглядеть
+   задуманным: рисунок в тёплом свечении и мягкая тень под горшком. */
+function EmptyArt(_ref5) {
+  let _ref5$kind = _ref5.kind,
+    kind = _ref5$kind === void 0 ? "broadleaf" : _ref5$kind,
+    _ref5$size = _ref5.size,
+    size = _ref5$size === void 0 ? 168 : _ref5$size,
+    _ref5$seed = _ref5.seed,
+    seed = _ref5$seed === void 0 ? "сад" : _ref5$seed;
+  const dark = C.paper === DARK.paper;
+  const tones = dark ? HAB_TONES_DARK : HAB_TONES;
+  const col = tones[hashOf(seed) % tones.length];
+  const glow = dark ? "radial-gradient(circle, rgba(188,215,173,0.20) 0%, rgba(188,215,173,0.06) 45%, rgba(188,215,173,0) 72%)" : "radial-gradient(circle, rgba(201,161,90,0.40) 0%, rgba(201,161,90,0.13) 45%, rgba(201,161,90,0) 72%)";
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "relative",
+      width: size,
+      margin: "0 auto"
+    },
+    "aria-hidden": "true"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      left: "50%",
+      top: "48%",
+      transform: "translate(-50%, -50%)",
+      width: size,
+      height: size,
+      borderRadius: "50%",
+      background: glow
+    }
+  }), /*#__PURE__*/React.createElement("svg", {
+    width: size,
+    height: Math.round(size * 1.46),
+    viewBox: "0 0 48 70",
+    style: {
+      position: "relative",
+      display: "block"
+    }
+  }, /*#__PURE__*/React.createElement("ellipse", {
+    cx: "24",
+    cy: "67",
+    rx: "16",
+    ry: "3.4",
+    fill: dark ? "#000" : C.ink,
+    opacity: dark ? 0.45 : 0.13
+  }), habitusArt(kind, col, dark ? "#1d271f" : "#2e4433", true), /*#__PURE__*/React.createElement("path", {
+    d: "M13 58 L35 58 L32 66 L16 66 Z",
+    fill: dark ? "#3a4a3f" : "#cfd6c4"
+  })));
 }
 function genSyncCode() {
   const abc = "abcdefghjkmnpqrstuvwxyz23456789";
@@ -2039,13 +2150,13 @@ function Watercolor() {
     style: blob(set[3], 230, 170, 34, "26%", 17)
   }));
 }
-function Chip(_ref4) {
-  let active = _ref4.active,
-    onClick = _ref4.onClick,
-    children = _ref4.children,
-    icon = _ref4.icon,
-    small = _ref4.small,
-    label = _ref4.label;
+function Chip(_ref6) {
+  let active = _ref6.active,
+    onClick = _ref6.onClick,
+    children = _ref6.children,
+    icon = _ref6.icon,
+    small = _ref6.small,
+    label = _ref6.label;
   return /*#__PURE__*/React.createElement("button", {
     onClick: onClick,
     "aria-pressed": !!active,
@@ -2070,12 +2181,12 @@ function Chip(_ref4) {
     size: 15
   }), children);
 }
-function NavTab(_ref5) {
-  let active = _ref5.active,
-    icon = _ref5.icon,
-    label = _ref5.label,
-    badge = _ref5.badge,
-    onClick = _ref5.onClick;
+function NavTab(_ref7) {
+  let active = _ref7.active,
+    icon = _ref7.icon,
+    label = _ref7.label,
+    badge = _ref7.badge,
+    onClick = _ref7.onClick;
   return /*#__PURE__*/React.createElement("button", {
     onClick: onClick,
     "aria-current": active ? "page" : undefined,
@@ -2138,12 +2249,12 @@ function NavTab(_ref5) {
     }
   }, "дел: ", badge)));
 }
-function Fold(_ref6) {
-  let title = _ref6.title,
-    count = _ref6.count,
-    defaultOpen = _ref6.defaultOpen,
-    children = _ref6.children,
-    icon = _ref6.icon;
+function Fold(_ref8) {
+  let title = _ref8.title,
+    count = _ref8.count,
+    defaultOpen = _ref8.defaultOpen,
+    children = _ref8.children,
+    icon = _ref8.icon;
   const _useState = useState(!!defaultOpen),
     _useState2 = _slicedToArray(_useState, 2),
     open = _useState2[0],
@@ -2197,23 +2308,26 @@ function Fold(_ref6) {
     }
   }, children));
 }
-function Btn(_ref7) {
-  let onClick = _ref7.onClick,
-    children = _ref7.children,
-    _ref7$tone = _ref7.tone,
-    tone = _ref7$tone === void 0 ? "moss" : _ref7$tone,
-    disabled = _ref7.disabled,
-    softDisabled = _ref7.softDisabled,
-    onDisabledClick = _ref7.onDisabledClick,
-    small = _ref7.small,
-    icon = _ref7.icon,
-    full = _ref7.full,
-    title = _ref7.title,
-    pressed = _ref7.pressed;
+function Btn(_ref9) {
+  let onClick = _ref9.onClick,
+    children = _ref9.children,
+    _ref9$tone = _ref9.tone,
+    tone = _ref9$tone === void 0 ? "moss" : _ref9$tone,
+    disabled = _ref9.disabled,
+    softDisabled = _ref9.softDisabled,
+    onDisabledClick = _ref9.onDisabledClick,
+    small = _ref9.small,
+    icon = _ref9.icon,
+    full = _ref9.full,
+    title = _ref9.title,
+    pressed = _ref9.pressed;
+  /* Один акцент на всё приложение: действие — мох. Розовый остаётся за
+     тревогой, жёлтый — за предупреждением, синий — только за поливом
+     (капля и ободок «хочет пить»), но не за кнопками. */
   const bg = {
     moss: C.moss,
     blossom: C.blossomText,
-    water: C.waterDeep,
+    water: C.moss,
     ghost: "transparent"
   }[tone];
   const isGhost = tone === "ghost";
@@ -2253,18 +2367,18 @@ function Btn(_ref7) {
 }
 
 /* Мелкая текстовая ссылка-кнопка с нормальной зоной нажатия */
-function Link(_ref8) {
-  let onClick = _ref8.onClick,
-    children = _ref8.children,
-    tone = _ref8.tone,
-    style = _ref8.style;
+function Link(_ref0) {
+  let onClick = _ref0.onClick,
+    children = _ref0.children,
+    tone = _ref0.tone,
+    style = _ref0.style;
   return /*#__PURE__*/React.createElement("button", {
     onClick: onClick,
     style: {
       ...sans,
       background: "none",
       border: "none",
-      color: tone === "danger" ? C.blossomText : tone === "water" ? C.waterDeep : C.sageText,
+      color: tone === "danger" ? C.blossomText : tone === "water" ? C.moss : C.sageText,
       fontSize: 13,
       cursor: "pointer",
       textDecoration: "underline",
@@ -2275,10 +2389,10 @@ function Link(_ref8) {
     }
   }, children);
 }
-function Field(_ref9) {
-  let label = _ref9.label,
-    children = _ref9.children,
-    hint = _ref9.hint;
+function Field(_ref1) {
+  let label = _ref1.label,
+    children = _ref1.children,
+    hint = _ref1.hint;
   return /*#__PURE__*/React.createElement("label", {
     style: {
       display: "block",
@@ -2484,10 +2598,10 @@ function habitusArt(kind, col, vein, detail) {
   }
   if (kind === "sword") {
     const bl = [];
-    [[-16, 12], [-6, 6], [6, 8], [16, 16]].forEach((_ref0, i) => {
-      let _ref1 = _slicedToArray(_ref0, 2),
-        a = _ref1[0],
-        top = _ref1[1];
+    [[-16, 12], [-6, 6], [6, 8], [16, 16]].forEach((_ref10, i) => {
+      let _ref11 = _slicedToArray(_ref10, 2),
+        a = _ref11[0],
+        top = _ref11[1];
       bl.push(/*#__PURE__*/React.createElement("g", {
         key: i,
         transform: "rotate(".concat(a, " 24 60)")
@@ -2548,10 +2662,10 @@ function habitusArt(kind, col, vein, detail) {
   }
   /* herb */
   const lv = [];
-  [[-46, 0.85], [-22, 0.95], [0, 1], [22, 0.95], [46, 0.85]].forEach((_ref10, i) => {
-    let _ref11 = _slicedToArray(_ref10, 2),
-      a = _ref11[0],
-      o = _ref11[1];
+  [[-46, 0.85], [-22, 0.95], [0, 1], [22, 0.95], [46, 0.85]].forEach((_ref12, i) => {
+    let _ref13 = _slicedToArray(_ref12, 2),
+      a = _ref13[0],
+      o = _ref13[1];
     lv.push(/*#__PURE__*/React.createElement("g", {
       key: i,
       transform: "rotate(".concat(a, " 24 60)")
@@ -2565,9 +2679,9 @@ function habitusArt(kind, col, vein, detail) {
 }
 const HAB_TONES = ["#5d8257", "#6d9463", "#4f7350", "#7ba471"];
 const HAB_TONES_DARK = ["#6e8f67", "#7fa375", "#5d8059", "#87ad7c"];
-function PlantSilhouette(_ref12) {
-  let plant = _ref12.plant,
-    size = _ref12.size;
+function PlantSilhouette(_ref14) {
+  let plant = _ref14.plant,
+    size = _ref14.size;
   const kind = habitusOf(plant);
   const h = hashOf(plant.id || plant.name);
   const dark = C.paper === DARK.paper;
@@ -2600,13 +2714,13 @@ function plantPhoto(p) {
   const g = p.gallery && p.gallery[0];
   return g ? g.src : null;
 }
-function PlantThumb(_ref13) {
-  let plant = _ref13.plant,
-    _ref13$size = _ref13.size,
-    size = _ref13$size === void 0 ? 64 : _ref13$size,
-    _ref13$radius = _ref13.radius,
-    radius = _ref13$radius === void 0 ? R.md : _ref13$radius,
-    className = _ref13.className;
+function PlantThumb(_ref15) {
+  let plant = _ref15.plant,
+    _ref15$size = _ref15.size,
+    size = _ref15$size === void 0 ? 64 : _ref15$size,
+    _ref15$radius = _ref15.radius,
+    radius = _ref15$radius === void 0 ? R.md : _ref15$radius,
+    className = _ref15.className;
   const src = plantPhoto(plant);
   if (src) {
     return /*#__PURE__*/React.createElement("img", {
@@ -2646,10 +2760,10 @@ function PlantThumb(_ref13) {
 }
 
 /* Сегментированный переключатель — визуально отличается от чипов-фильтров */
-function Segmented(_ref14) {
-  let items = _ref14.items,
-    value = _ref14.value,
-    onChange = _ref14.onChange;
+function Segmented(_ref16) {
+  let items = _ref16.items,
+    value = _ref16.value,
+    onChange = _ref16.onChange;
   return /*#__PURE__*/React.createElement("div", {
     role: "tablist",
     style: {
@@ -2686,9 +2800,9 @@ function Segmented(_ref14) {
 
 /* Свой мягкий диалог вместо window.confirm: системный алерт в акварельном
    приложении звучит как звонок в дверь посреди тихого вечера. */
-function Confirm(_ref15) {
-  let ask = _ref15.ask,
-    onClose = _ref15.onClose;
+function Confirm(_ref17) {
+  let ask = _ref17.ask,
+    onClose = _ref17.onClose;
   const cancelRef = useRef(null);
   const prevFocus = useRef(null);
   useEffect(() => {
@@ -2784,10 +2898,10 @@ function Confirm(_ref15) {
 
 /* Выбор даты для отметки задним числом. Жизнь идёт не внутри приложения:
    полили в субботу, открыли в понедельник — и это надо уметь записать. */
-function WhenPicker(_ref16) {
-  let open = _ref16.open,
-    onPick = _ref16.onPick,
-    onClose = _ref16.onClose;
+function WhenPicker(_ref18) {
+  let open = _ref18.open,
+    onPick = _ref18.onPick,
+    onClose = _ref18.onClose;
   const _useState3 = useState(today()),
     _useState4 = _slicedToArray(_useState3, 2),
     custom = _useState4[0],
@@ -2839,8 +2953,8 @@ function WhenPicker(_ref16) {
     onClick: onClose
   }, "отмена")));
 }
-function PassportGrid(_ref17) {
-  let care = _ref17.care;
+function PassportGrid(_ref19) {
+  let care = _ref19.care;
   const rows = [["sun", "Свет", care.light], ["drop", "Полив", "летом раз в ".concat(care.wateringSummer, " дн., зимой раз в ").concat(care.wateringWinter, " дн. ").concat(care.wateringNote || "")], ["check", "Когда поливать", care.dryDownTarget], ["can", "Как поливать", care.wateringMethod], ["spray", "Влажность", care.mistOk === false && care.humidityAdvice ? "".concat(care.humidity || "", " Опрыскивать не стоит: ").concat(care.humidityAdvice) : care.humidity], ["leaf", "Подкормка", care.feedType || care.feeding], ["pot", "Грунт", care.soil ? "".concat(care.soil).concat(care.phRange ? " pH ".concat(care.phRange, ".") : "") : null], ["pot", "Пересадка", care.repotting], ["moon", "Покой", care.dormancy && care.dormancy.type && !/^нет/i.test(care.dormancy.type) ? "".concat(care.dormancy.type).concat(care.dormancy.months ? ", ".concat(care.dormancy.months) : "").concat(care.dormancy.tempC != null ? ", ".concat(care.dormancy.tempC, "°C") : "") : null], ["sun", "Досветка", care.winterLightSupplement], ["thermo", "Минимум", care.minTempC != null ? "".concat(care.minTempC, "°C").concat(care.chillDamageTempC != null ? " · мёрзнет уже при ".concat(care.chillDamageTempC, "°C") : "") : null], ["flower", "Цветение", care.bloomSeason ? "".concat(care.bloomSeason).concat(care.bloomTrigger ? ". ".concat(care.bloomTrigger) : "") : null], ["scissors", "Обрезка", care.pruning], ["leaf", "Размножение", care.propagation], ["bug", "Кто досаждает", Array.isArray(care.commonPests) ? care.commonPests.join(", ") : care.commonPests], ["bandage", "Частая ошибка", care.topMistake], ["x", "Токсичность", care.toxicity && !/не токсич/i.test(care.toxicity) ? care.toxicity : null]].filter(r => r[2]);
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -2851,11 +2965,11 @@ function PassportGrid(_ref17) {
       fontSize: 14.5,
       lineHeight: 1.5
     }
-  }, rows.map(_ref18 => {
-    let _ref19 = _slicedToArray(_ref18, 3),
-      ic = _ref19[0],
-      k = _ref19[1],
-      v = _ref19[2];
+  }, rows.map(_ref20 => {
+    let _ref21 = _slicedToArray(_ref20, 3),
+      ic = _ref21[0],
+      k = _ref21[1],
+      v = _ref21[2];
     return /*#__PURE__*/React.createElement(React.Fragment, {
       key: k
     }, /*#__PURE__*/React.createElement("div", {
@@ -5400,9 +5514,9 @@ function MyGarden() {
 
 /* Грядка из листиков: по одному на растение, у кого просрочка — повёрнут и приглушён.
    Состояние всего сада одним взглядом. */
-function GardenBed(_ref20) {
-  let plants = _ref20.plants,
-    dueInfo = _ref20.dueInfo;
+function GardenBed(_ref22) {
+  let plants = _ref22.plants,
+    dueInfo = _ref22.dueInfo;
   const items = plants.slice(0, 60);
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -5491,29 +5605,29 @@ const SORTS = [{
   v: "new",
   t: "новички сверху"
 }];
-function GardenView(_ref21) {
-  let shown = _ref21.shown,
-    total = _ref21.total,
-    allPlants = _ref21.allPlants,
-    filter = _ref21.filter,
-    setFilter = _ref21.setFilter,
-    sortBy = _ref21.sortBy,
-    setSortBy = _ref21.setSortBy,
-    compact = _ref21.compact,
-    setCompact = _ref21.setCompact,
-    search = _ref21.search,
-    setSearch = _ref21.setSearch,
-    dueInfo = _ref21.dueInfo,
-    sickIds = _ref21.sickIds,
-    archivedCount = _ref21.archivedCount,
-    backupNudge = _ref21.backupNudge,
-    onOpen = _ref21.onOpen,
-    onAdd = _ref21.onAdd,
-    onArchive = _ref21.onArchive,
-    onExport = _ref21.onExport,
-    onImportClick = _ref21.onImportClick,
-    onSettings = _ref21.onSettings,
-    showToast = _ref21.showToast;
+function GardenView(_ref23) {
+  let shown = _ref23.shown,
+    total = _ref23.total,
+    allPlants = _ref23.allPlants,
+    filter = _ref23.filter,
+    setFilter = _ref23.setFilter,
+    sortBy = _ref23.sortBy,
+    setSortBy = _ref23.setSortBy,
+    compact = _ref23.compact,
+    setCompact = _ref23.setCompact,
+    search = _ref23.search,
+    setSearch = _ref23.setSearch,
+    dueInfo = _ref23.dueInfo,
+    sickIds = _ref23.sickIds,
+    archivedCount = _ref23.archivedCount,
+    backupNudge = _ref23.backupNudge,
+    onOpen = _ref23.onOpen,
+    onAdd = _ref23.onAdd,
+    onArchive = _ref23.onArchive,
+    onExport = _ref23.onExport,
+    onImportClick = _ref23.onImportClick,
+    onSettings = _ref23.onSettings,
+    showToast = _ref23.showToast;
   const subtitleMap = useMemo(() => buildSubtitleMap(allPlants), [allPlants]);
   const _useState59 = useState(false),
     _useState60 = _slicedToArray(_useState59, 2),
@@ -5544,16 +5658,18 @@ function GardenView(_ref21) {
     return /*#__PURE__*/React.createElement("div", {
       style: {
         textAlign: "center",
-        padding: "60px 20px"
+        padding: "40px 20px 60px"
       }
-    }, /*#__PURE__*/React.createElement(LeafMark, {
-      size: 54
+    }, /*#__PURE__*/React.createElement(EmptyArt, {
+      kind: "broadleaf",
+      size: 168,
+      seed: "первое растение"
     }), /*#__PURE__*/React.createElement("h2", {
       style: {
         ...serif,
         fontWeight: 400,
         fontSize: 26,
-        margin: "16px 0 8px"
+        margin: "10px 0 8px"
       }
     }, "Сад пока пуст"), /*#__PURE__*/React.createElement("p", {
       style: {
@@ -5597,8 +5713,8 @@ function GardenView(_ref21) {
       items: shown
     });
   }
-  const Card = _ref22 => {
-    let p = _ref22.p;
+  const Card = _ref24 => {
+    let p = _ref24.p;
     const d = dueInfo(p);
     const sick = !!(sickIds && sickIds[p.id]);
     const sub = subtitleMap[speciesKey(p.care && p.care.latinName || "", p.name)] || speciesSubtitle(p);
@@ -5669,18 +5785,22 @@ function GardenView(_ref21) {
         background: C.card,
         border: d.waterDue ? "2px solid ".concat(C.waterDeep) : "1px solid ".concat(C.line),
         borderRadius: R.lg,
-        padding: d.waterDue ? 13 : 14,
+        padding: 0,
+        overflow: "hidden",
         cursor: "pointer",
         display: "flex",
         gap: 14,
         position: "relative"
       }
     }, /*#__PURE__*/React.createElement(PlantThumb, {
-      plant: p
+      plant: p,
+      size: 92,
+      radius: 0
     }), /*#__PURE__*/React.createElement("div", {
       style: {
         minWidth: 0,
-        flex: 1
+        flex: 1,
+        padding: "14px 14px 14px 0"
       }
     }, /*#__PURE__*/React.createElement("div", {
       style: {
@@ -5747,7 +5867,7 @@ function GardenView(_ref21) {
       alignItems: "center",
       gap: 12,
       flexWrap: "wrap",
-      background: C.waterSoft,
+      background: C.paperDeep,
       borderRadius: R.md,
       padding: "12px 14px",
       marginBottom: 14,
@@ -5762,7 +5882,7 @@ function GardenView(_ref21) {
     }
   }, "Сад хранится в этом браузере — давно не было резервной копии."), /*#__PURE__*/React.createElement(Btn, {
     small: true,
-    tone: "water",
+    tone: "ghost",
     onClick: onExport
   }, "Скачать копию")), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -5950,12 +6070,12 @@ function GardenView(_ref21) {
 }
 
 /* ─────────────────────────  Были с нами  ───────────────────────── */
-function ArchiveView(_ref23) {
-  let archived = _ref23.archived,
-    journal = _ref23.journal,
-    onOpen = _ref23.onOpen,
-    onRestore = _ref23.onRestore,
-    onBack = _ref23.onBack;
+function ArchiveView(_ref25) {
+  let archived = _ref25.archived,
+    journal = _ref25.journal,
+    onOpen = _ref25.onOpen,
+    onRestore = _ref25.onRestore,
+    onBack = _ref25.onBack;
   const label = {
     gone: "погибло",
     gifted: "подарено",
@@ -6076,32 +6196,32 @@ const TASK_LABEL = {
     icon: "sparkle"
   }
 };
-function TodayView(_ref24) {
-  let dueList = _ref24.dueList,
-    plants = _ref24.plants,
-    profile = _ref24.profile,
-    dueInfoFn = _ref24.dueInfoFn,
-    fact = _ref24.fact,
-    weatherHintsList = _ref24.weatherHintsList,
-    onHeatingOn = _ref24.onHeatingOn,
-    quarantineList = _ref24.quarantineList,
-    quarantineLeft = _ref24.quarantineLeft,
-    onQuarantineDone = _ref24.onQuarantineDone,
-    repotList = _ref24.repotList,
-    treatmentList = _ref24.treatmentList,
-    anniversaries = _ref24.anniversaries,
-    onVacation = _ref24.onVacation,
-    onCare = _ref24.onCare,
-    onCareMany = _ref24.onCareMany,
-    onSnooze = _ref24.onSnooze,
-    onOpen = _ref24.onOpen,
-    onAddNeed = _ref24.onAddNeed,
-    health = _ref24.health,
-    sync = _ref24.sync,
-    syncAvailable = _ref24.syncAvailable,
-    lastBackup = _ref24.lastBackup,
-    onExport = _ref24.onExport,
-    onSettings = _ref24.onSettings;
+function TodayView(_ref26) {
+  let dueList = _ref26.dueList,
+    plants = _ref26.plants,
+    profile = _ref26.profile,
+    dueInfoFn = _ref26.dueInfoFn,
+    fact = _ref26.fact,
+    weatherHintsList = _ref26.weatherHintsList,
+    onHeatingOn = _ref26.onHeatingOn,
+    quarantineList = _ref26.quarantineList,
+    quarantineLeft = _ref26.quarantineLeft,
+    onQuarantineDone = _ref26.onQuarantineDone,
+    repotList = _ref26.repotList,
+    treatmentList = _ref26.treatmentList,
+    anniversaries = _ref26.anniversaries,
+    onVacation = _ref26.onVacation,
+    onCare = _ref26.onCare,
+    onCareMany = _ref26.onCareMany,
+    onSnooze = _ref26.onSnooze,
+    onOpen = _ref26.onOpen,
+    onAddNeed = _ref26.onAddNeed,
+    health = _ref26.health,
+    sync = _ref26.sync,
+    syncAvailable = _ref26.syncAvailable,
+    lastBackup = _ref26.lastBackup,
+    onExport = _ref26.onExport,
+    onSettings = _ref26.onSettings;
   const factPlant = fact && plants.find(p => p.id === fact.plantId);
   const _useState63 = useState(null),
     _useState64 = _slicedToArray(_useState63, 2),
@@ -6175,19 +6295,19 @@ function TodayView(_ref24) {
     t: "Позже",
     items: schedule.filter(s => s.left === null || s.left > 7)
   }].filter(b => b.items.length);
-  const Notice = _ref25 => {
-    let icon = _ref25.icon,
-      tone = _ref25.tone,
-      children = _ref25.children,
-      onClick = _ref25.onClick,
-      action = _ref25.action;
+  const Notice = _ref27 => {
+    let icon = _ref27.icon,
+      tone = _ref27.tone,
+      children = _ref27.children,
+      onClick = _ref27.onClick,
+      action = _ref27.action;
     return /*#__PURE__*/React.createElement("div", {
       onClick: onClick,
       style: {
         display: "flex",
         gap: 10,
         alignItems: "flex-start",
-        background: tone === "warn" ? C.blossomSoft : tone === "leaf" ? C.sageSoft : C.waterSoft,
+        background: tone === "warn" ? C.blossomSoft : tone === "leaf" ? C.sageSoft : C.paperDeep,
         border: "1px solid ".concat(C.line),
         borderRadius: R.md,
         padding: "12px 14px",
@@ -6282,9 +6402,9 @@ function TodayView(_ref24) {
         fontWeight: 400
       }
     }, p.nickname || p.name), " — ", years, " ", plural(years, "год", "года", "лет"), " с вами в этом месяце. Сделайте снимок на память 📸");
-  }), treatmentList.map(_ref26 => {
-    let o = _ref26.o,
-      sickPlants = _ref26.plants;
+  }), treatmentList.map(_ref28 => {
+    let o = _ref28.o,
+      sickPlants = _ref28.plants;
     const doneRounds = (o.rounds || []).length;
     const watch = (o.members || []).filter(m => m.role === "watch").length;
     return /*#__PURE__*/React.createElement(Notice, {
@@ -6366,26 +6486,11 @@ function TodayView(_ref24) {
       textAlign: "center",
       padding: "40px 20px"
     }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "relative",
-      display: "inline-block"
-    }
-  }, /*#__PURE__*/React.createElement(SoftBlob, {
-    size: 110,
-    color: C.blossomSoft
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "absolute",
-      inset: 0,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center"
-    }
-  }, /*#__PURE__*/React.createElement(LeafMark, {
-    size: 40,
-    color: C.moss
-  }))), /*#__PURE__*/React.createElement("p", {
+  }, /*#__PURE__*/React.createElement(EmptyArt, {
+    kind: "bloom",
+    size: 132,
+    seed: "спокойный день"
+  }), /*#__PURE__*/React.createElement("p", {
     style: {
       ...serif,
       fontStyle: "italic",
@@ -6443,15 +6548,15 @@ function TodayView(_ref24) {
     style: {
       marginLeft: "auto"
     }
-  }, "полить всю группу")), g.items.map(_ref27 => {
-    let p = _ref27.p,
-      waterDue = _ref27.waterDue,
-      feedDue = _ref27.feedDue,
-      mistDue = _ref27.mistDue,
-      wipeDue = _ref27.wipeDue,
-      dw = _ref27.dw,
-      interval = _ref27.interval,
-      neverWatered = _ref27.neverWatered;
+  }, "полить всю группу")), g.items.map(_ref29 => {
+    let p = _ref29.p,
+      waterDue = _ref29.waterDue,
+      feedDue = _ref29.feedDue,
+      mistDue = _ref29.mistDue,
+      wipeDue = _ref29.wipeDue,
+      dw = _ref29.dw,
+      interval = _ref29.interval,
+      neverWatered = _ref29.neverWatered;
     const tasks = [];
     if (waterDue) tasks.push(neverWatered ? "новичок — первый полив дома" : "проверить полив — ".concat(dw, " дн. назад (норма ").concat(interval, ")"));
     if (feedDue) tasks.push("подкормка");
@@ -6598,10 +6703,10 @@ function TodayView(_ref24) {
       color: C.ink,
       marginBottom: 6
     }
-  }, b.t, " · ", b.items.length), b.items.map(_ref28 => {
-    let p = _ref28.p,
-      interval = _ref28.interval,
-      left = _ref28.left;
+  }, b.t, " · ", b.items.length), b.items.map(_ref30 => {
+    let p = _ref30.p,
+      interval = _ref30.interval,
+      left = _ref30.left;
     return /*#__PURE__*/React.createElement("div", {
       key: p.id,
       style: {
@@ -6652,13 +6757,13 @@ function TodayView(_ref24) {
 }
 
 /* Тихая строка о сохранности: молчаливый отказ — худший из отказов */
-function SafetyLine(_ref29) {
-  let health = _ref29.health,
-    sync = _ref29.sync,
-    syncAvailable = _ref29.syncAvailable,
-    lastBackup = _ref29.lastBackup,
-    onExport = _ref29.onExport,
-    onSettings = _ref29.onSettings;
+function SafetyLine(_ref31) {
+  let health = _ref31.health,
+    sync = _ref31.sync,
+    syncAvailable = _ref31.syncAvailable,
+    lastBackup = _ref31.lastBackup,
+    onExport = _ref31.onExport,
+    onSettings = _ref31.onSettings;
   const bad = health && (health.localFail || health.cloudFail);
   const days = t => t ? Math.floor((Date.now() - t) / 86400000) : null;
   const bd = days(lastBackup);
@@ -6700,15 +6805,15 @@ function SafetyLine(_ref29) {
 }
 
 /* ─────────────────────────  Добавление растения  ───────────────────────── */
-function AddView(_ref30) {
-  let onDone = _ref30.onDone,
-    onCancel = _ref30.onCancel,
-    showToast = _ref30.showToast,
-    plants = _ref30.plants,
-    prefillName = _ref30.prefillName,
-    spots = _ref30.spots,
-    apartment = _ref30.apartment,
-    onEditPlaces = _ref30.onEditPlaces;
+function AddView(_ref32) {
+  let onDone = _ref32.onDone,
+    onCancel = _ref32.onCancel,
+    showToast = _ref32.showToast,
+    plants = _ref32.plants,
+    prefillName = _ref32.prefillName,
+    spots = _ref32.spots,
+    apartment = _ref32.apartment,
+    onEditPlaces = _ref32.onEditPlaces;
   const _useState71 = useState(prefillName || ""),
     _useState72 = _slicedToArray(_useState71, 2),
     name = _useState72[0],
@@ -7065,7 +7170,7 @@ function AddView(_ref30) {
     className: "reveal",
     style: {
       marginTop: 10,
-      background: C.waterSoft,
+      background: C.paperDeep,
       borderRadius: R.md,
       padding: "12px 14px",
       ...sans,
@@ -7591,6 +7696,7 @@ function PlantView(props) {
     p: (allPlants || []).find(x => x.id === m.plantId)
   })).filter(x => x.p) : [];
   const tSince = treat;
+  const heroPhoto = plantPhoto(plant);
   /* Что чем лечить — местное знание: таблица групп, полка и прошлый курс */
   const chem = myOutbreak ? chemAdvice(myOutbreak, inventory, outbreaks) : null;
   const roundG = roundGroupPick || guessGroup(roundProduct);
@@ -7632,14 +7738,29 @@ function PlantView(props) {
     tone: editing ? "moss" : "ghost",
     pressed: editing,
     onClick: () => setEditing(!editing)
-  }, editing ? "Готово" : "Править")), /*#__PURE__*/React.createElement("div", {
+  }, editing ? "Готово" : "Править")), heroPhoto && /*#__PURE__*/React.createElement("img", {
+    src: heroPhoto,
+    alt: plant.nickname || plant.name,
+    onClick: () => {
+      setTab("photos");
+    },
+    style: {
+      display: "block",
+      width: "calc(100% + 40px)",
+      margin: "0 -20px 16px",
+      height: 260,
+      objectFit: "cover",
+      cursor: "pointer",
+      filter: C.paper === DARK.paper ? "brightness(.92)" : "none"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 16,
       alignItems: "flex-start",
       flexWrap: "wrap"
     }
-  }, /*#__PURE__*/React.createElement(PlantThumb, {
+  }, !heroPhoto && /*#__PURE__*/React.createElement(PlantThumb, {
     plant: plant,
     size: 112,
     radius: 20
@@ -7894,7 +8015,7 @@ function PlantView(props) {
     onClick: () => onCare("water")
   }, "Полить"), /*#__PURE__*/React.createElement(Btn, {
     small: true,
-    tone: "moss",
+    tone: "ghost",
     icon: "leaf",
     onClick: () => onCare("feed"),
     softDisabled: !!feedBlock,
@@ -8079,11 +8200,11 @@ function PlantView(props) {
       flexWrap: "wrap",
       marginBottom: 10
     }
-  }, [["wet", "земля влажная на 5 см вглубь", "soil"], ["dry", "земля сухая на 5 см вглубь", "soil"], ["heavy", "горшок тяжёлый", "weight"], ["light", "горшок лёгкий", "weight"], ["smell", "земля пахнет затхлым", null], ["tray", "в поддоне стоит вода", null], ["none", "не проверяла", "all"]].map(_ref31 => {
-    let _ref32 = _slicedToArray(_ref31, 3),
-      k = _ref32[0],
-      t = _ref32[1],
-      grp = _ref32[2];
+  }, [["wet", "земля влажная на 5 см вглубь", "soil"], ["dry", "земля сухая на 5 см вглубь", "soil"], ["heavy", "горшок тяжёлый", "weight"], ["light", "горшок лёгкий", "weight"], ["smell", "земля пахнет затхлым", null], ["tray", "в поддоне стоит вода", null], ["none", "не проверяла", "all"]].map(_ref33 => {
+    let _ref34 = _slicedToArray(_ref33, 3),
+      k = _ref34[0],
+      t = _ref34[1],
+      grp = _ref34[2];
     return /*#__PURE__*/React.createElement(Chip, {
       key: k,
       small: true,
@@ -8453,9 +8574,9 @@ function PlantView(props) {
       gap: 6,
       flexWrap: "wrap"
     }
-  }, zoneMates.map(_ref33 => {
-    let m = _ref33.m,
-      mp = _ref33.p;
+  }, zoneMates.map(_ref35 => {
+    let m = _ref35.m,
+      mp = _ref35.p;
     const picked = (roundPicked || zoneMates.map(z => z.m.plantId)).indexOf(m.plantId) >= 0;
     return /*#__PURE__*/React.createElement(Chip, {
       key: m.plantId,
@@ -8522,7 +8643,7 @@ function PlantView(props) {
     }
   }, "Обработка сделана"), /*#__PURE__*/React.createElement(Btn, {
     small: true,
-    tone: "water",
+    tone: "ghost",
     onClick: () => treatCamRef.current && treatCamRef.current.click(),
     disabled: treatBusy,
     icon: "camera"
@@ -8709,7 +8830,7 @@ function PlantView(props) {
     }
   }, diag.status), diag.checksBeforeAction && diag.checksBeforeAction.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
-      background: C.waterSoft,
+      background: C.paperDeep,
       borderRadius: R.sm,
       padding: "10px 12px",
       marginBottom: 10
@@ -8718,7 +8839,7 @@ function PlantView(props) {
     style: {
       ...sans,
       fontSize: 12.5,
-      color: C.waterDeep,
+      color: C.moss,
       marginBottom: 4,
       fontWeight: 600
     }
@@ -9122,9 +9243,9 @@ function PlantView(props) {
     title: "Из хозяйства подходит",
     count: invMatches.length,
     icon: "basket"
-  }, invMatches.map(_ref34 => {
-    let item = _ref34.item,
-      how = _ref34.how;
+  }, invMatches.map(_ref36 => {
+    let item = _ref36.item,
+      how = _ref36.how;
     return /*#__PURE__*/React.createElement("div", {
       key: item.id,
       style: {
@@ -9333,18 +9454,21 @@ function PlantView(props) {
     }
   }, "Добавляйте снимки время от времени — получится история роста. Через год это будет самое ценное в карточке.") : /*#__PURE__*/React.createElement("div", {
     style: {
+      margin: "0 -20px",
       display: "grid",
-      gridTemplateColumns: "repeat(auto-fill, minmax(104px, 1fr))",
-      gap: 8
+      gridTemplateColumns: "repeat(auto-fill, minmax(112px, 1fr))",
+      gap: 2
     }
   }, gallery.map(g => /*#__PURE__*/React.createElement("button", {
     key: g.id,
     onClick: () => setGalView(g),
     style: {
+      position: "relative",
       background: "none",
       border: "none",
       padding: 0,
-      cursor: "pointer"
+      cursor: "pointer",
+      display: "block"
     }
   }, /*#__PURE__*/React.createElement("img", {
     src: g.src,
@@ -9353,16 +9477,21 @@ function PlantView(props) {
       width: "100%",
       aspectRatio: "1",
       objectFit: "cover",
-      borderRadius: R.md,
       display: "block"
     }
-  }), /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("span", {
     style: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      bottom: 0,
+      padding: "16px 8px 5px",
+      textAlign: "left",
       ...sans,
       fontSize: 11,
-      color: C.sageText,
-      marginTop: 3,
-      textAlign: "center"
+      color: "#fff",
+      textShadow: "0 1px 2px rgba(0,0,0,.5)",
+      background: "linear-gradient(to top, rgba(0,0,0,.42), rgba(0,0,0,0))"
     }
   }, fmtDate(g.date)))))), tab === "journal" && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -9641,9 +9770,9 @@ function PlantView(props) {
 }
 
 /* Короткая честная сводка по дневнику: как поливали на самом деле против нормы */
-function JournalStats(_ref35) {
-  let entries = _ref35.entries,
-    interval = _ref35.interval;
+function JournalStats(_ref37) {
+  let entries = _ref37.entries,
+    interval = _ref37.interval;
   const waters = entries.filter(e => e.type === "water").map(e => new Date(e.date).getTime()).sort((a, b) => b - a);
   if (waters.length < 3) return null;
   const gaps = [];
@@ -9666,10 +9795,10 @@ function JournalStats(_ref35) {
 
 /* Раньше единственным способом поправить неверное число была кнопка «обновить»,
    которая просто перебрасывала кубик. Теперь правка живёт отдельным слоем. */
-function CareEditor(_ref36) {
-  let plant = _ref36.plant,
-    onSave = _ref36.onSave,
-    onCancel = _ref36.onCancel;
+function CareEditor(_ref38) {
+  let plant = _ref38.plant,
+    onSave = _ref38.onSave,
+    onCancel = _ref38.onCancel;
   const base = plant.care || {};
   const cur = careOf(plant);
   const _useState175 = useState(() => {
@@ -9765,10 +9894,10 @@ function CareEditor(_ref36) {
     onClick: () => onSave(null)
   }, "вернуть всё как у садовника")));
 }
-function RepotForm(_ref37) {
-  let plant = _ref37.plant,
-    onSave = _ref37.onSave,
-    onCancel = _ref37.onCancel;
+function RepotForm(_ref39) {
+  let plant = _ref39.plant,
+    onSave = _ref39.onSave,
+    onCancel = _ref39.onCancel;
   const _useState177 = useState(plant.potCm ? String(plant.potCm) : ""),
     _useState178 = _slicedToArray(_useState177, 2),
     potCm = _useState178[0],
@@ -9878,12 +10007,12 @@ function RepotForm(_ref37) {
     onClick: onCancel
   }, "Отмена")));
 }
-function EditPlant(_ref38) {
-  let plant = _ref38.plant,
-    allPlants = _ref38.allPlants,
-    onSave = _ref38.onSave,
-    onCancel = _ref38.onCancel,
-    showToast = _ref38.showToast;
+function EditPlant(_ref40) {
+  let plant = _ref40.plant,
+    allPlants = _ref40.allPlants,
+    onSave = _ref40.onSave,
+    onCancel = _ref40.onCancel,
+    showToast = _ref40.showToast;
   const _useState187 = useState(plant.name),
     _useState188 = _slicedToArray(_useState187, 2),
     eName = _useState188[0],
@@ -10225,15 +10354,15 @@ function fitPayload(messages) {
 }
 
 /* ─────────────────────────  Чат-садовник  ───────────────────────── */
-function ChatView(_ref39) {
-  let plants = _ref39.plants,
-    journal = _ref39.journal,
-    apartment = _ref39.apartment,
-    invText = _ref39.invText,
-    profile = _ref39.profile,
-    outbreaks = _ref39.outbreaks,
-    messages = _ref39.messages,
-    onMessages = _ref39.onMessages;
+function ChatView(_ref41) {
+  let plants = _ref41.plants,
+    journal = _ref41.journal,
+    apartment = _ref41.apartment,
+    invText = _ref41.invText,
+    profile = _ref41.profile,
+    outbreaks = _ref41.outbreaks,
+    messages = _ref41.messages,
+    onMessages = _ref41.onMessages;
   const _useState211 = useState(""),
     _useState212 = _slicedToArray(_useState211, 2),
     input = _useState212[0],
@@ -10537,18 +10666,18 @@ function ChatView(_ref39) {
 }
 
 /* ─────────────────────────  Вишлист  ───────────────────────── */
-function WishlistView(_ref40) {
-  let wishlist = _ref40.wishlist,
-    plants = _ref40.plants,
-    journal = _ref40.journal,
-    apartment = _ref40.apartment,
-    profile = _ref40.profile,
-    outbreaks = _ref40.outbreaks,
-    onAdd = _ref40.onAdd,
-    onRemove = _ref40.onRemove,
-    onVerdict = _ref40.onVerdict,
-    onPlant = _ref40.onPlant,
-    showToast = _ref40.showToast;
+function WishlistView(_ref42) {
+  let wishlist = _ref42.wishlist,
+    plants = _ref42.plants,
+    journal = _ref42.journal,
+    apartment = _ref42.apartment,
+    profile = _ref42.profile,
+    outbreaks = _ref42.outbreaks,
+    onAdd = _ref42.onAdd,
+    onRemove = _ref42.onRemove,
+    onVerdict = _ref42.onVerdict,
+    onPlant = _ref42.onPlant,
+    showToast = _ref42.showToast;
   const _useState219 = useState(""),
     _useState220 = _slicedToArray(_useState219, 2),
     name = _useState220[0],
@@ -10716,23 +10845,23 @@ function WishlistView(_ref40) {
 }
 
 /* ─────────────────────────  Хозяйство: Нужное + Инвентарь  ───────────────────────── */
-function SuppliesView(_ref41) {
-  let needs = _ref41.needs,
-    inventory = _ref41.inventory,
-    plants = _ref41.plants,
-    journal = _ref41.journal,
-    apartment = _ref41.apartment,
-    invText = _ref41.invText,
-    profile = _ref41.profile,
-    outbreaks = _ref41.outbreaks,
-    onAddNeed = _ref41.onAddNeed,
-    onBuy = _ref41.onBuy,
-    onRemoveNeed = _ref41.onRemoveNeed,
-    onAddInv = _ref41.onAddInv,
-    onPatchInv = _ref41.onPatchInv,
-    onRemoveInv = _ref41.onRemoveInv,
-    onOpenPlant = _ref41.onOpenPlant,
-    showToast = _ref41.showToast;
+function SuppliesView(_ref43) {
+  let needs = _ref43.needs,
+    inventory = _ref43.inventory,
+    plants = _ref43.plants,
+    journal = _ref43.journal,
+    apartment = _ref43.apartment,
+    invText = _ref43.invText,
+    profile = _ref43.profile,
+    outbreaks = _ref43.outbreaks,
+    onAddNeed = _ref43.onAddNeed,
+    onBuy = _ref43.onBuy,
+    onRemoveNeed = _ref43.onRemoveNeed,
+    onAddInv = _ref43.onAddInv,
+    onPatchInv = _ref43.onPatchInv,
+    onRemoveInv = _ref43.onRemoveInv,
+    onOpenPlant = _ref43.onOpenPlant,
+    showToast = _ref43.showToast;
   const _useState223 = useState("needs"),
     _useState224 = _slicedToArray(_useState223, 2),
     tab = _useState224[0],
@@ -10780,19 +10909,19 @@ function SuppliesView(_ref41) {
     onAddNeed: onAddNeed
   }));
 }
-function NeedsView(_ref42) {
-  let needs = _ref42.needs,
-    plants = _ref42.plants,
-    journal = _ref42.journal,
-    apartment = _ref42.apartment,
-    invText = _ref42.invText,
-    profile = _ref42.profile,
-    outbreaks = _ref42.outbreaks,
-    onAdd = _ref42.onAdd,
-    onBuy = _ref42.onBuy,
-    onRemove = _ref42.onRemove,
-    onOpenPlant = _ref42.onOpenPlant,
-    showToast = _ref42.showToast;
+function NeedsView(_ref44) {
+  let needs = _ref44.needs,
+    plants = _ref44.plants,
+    journal = _ref44.journal,
+    apartment = _ref44.apartment,
+    invText = _ref44.invText,
+    profile = _ref44.profile,
+    outbreaks = _ref44.outbreaks,
+    onAdd = _ref44.onAdd,
+    onBuy = _ref44.onBuy,
+    onRemove = _ref44.onRemove,
+    onOpenPlant = _ref44.onOpenPlant,
+    showToast = _ref44.showToast;
   const _useState225 = useState(""),
     _useState226 = _slicedToArray(_useState225, 2),
     text = _useState226[0],
@@ -10826,8 +10955,8 @@ function NeedsView(_ref42) {
     }
     setAiBusy(false);
   }
-  const Row = _ref43 => {
-    let n = _ref43.n;
+  const Row = _ref45 => {
+    let n = _ref45.n;
     return /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
@@ -10916,7 +11045,7 @@ function NeedsView(_ref42) {
     }
   }, /*#__PURE__*/React.createElement(SoftBlob, {
     size: 96,
-    color: C.waterSoft
+    color: C.sageSoft
   }), /*#__PURE__*/React.createElement("p", {
     style: {
       ...serif,
@@ -10936,7 +11065,7 @@ function NeedsView(_ref42) {
     disabled: aiBusy
   }, aiBusy ? "Собираю заказ…" : "Собрать заказ")), order && /*#__PURE__*/React.createElement("div", {
     style: {
-      background: C.waterSoft,
+      background: C.paperDeep,
       borderRadius: R.md,
       padding: "14px 16px",
       marginBottom: 16,
@@ -10968,9 +11097,9 @@ function NeedsView(_ref42) {
   }, "Для сада в целом"), general.map(n => /*#__PURE__*/React.createElement(Row, {
     key: n.id,
     n: n
-  }))), byPlant.map(_ref44 => {
-    let p = _ref44.p,
-      items = _ref44.items;
+  }))), byPlant.map(_ref46 => {
+    let p = _ref46.p,
+      items = _ref46.items;
     return /*#__PURE__*/React.createElement("div", {
       key: p.id,
       style: {
@@ -11001,19 +11130,19 @@ function NeedsView(_ref42) {
     })));
   })));
 }
-function InventoryView(_ref45) {
-  let inventory = _ref45.inventory,
-    plants = _ref45.plants,
-    journal = _ref45.journal,
-    apartment = _ref45.apartment,
-    profile = _ref45.profile,
-    outbreaks = _ref45.outbreaks,
-    onAdd = _ref45.onAdd,
-    onPatch = _ref45.onPatch,
-    onRemove = _ref45.onRemove,
-    onOpenPlant = _ref45.onOpenPlant,
-    onAddNeed = _ref45.onAddNeed,
-    showToast = _ref45.showToast;
+function InventoryView(_ref47) {
+  let inventory = _ref47.inventory,
+    plants = _ref47.plants,
+    journal = _ref47.journal,
+    apartment = _ref47.apartment,
+    profile = _ref47.profile,
+    outbreaks = _ref47.outbreaks,
+    onAdd = _ref47.onAdd,
+    onPatch = _ref47.onPatch,
+    onRemove = _ref47.onRemove,
+    onOpenPlant = _ref47.onOpenPlant,
+    onAddNeed = _ref47.onAddNeed,
+    showToast = _ref47.showToast;
   const _useState231 = useState(""),
     _useState232 = _slicedToArray(_useState231, 2),
     name = _useState232[0],
@@ -11274,9 +11403,9 @@ function InventoryView(_ref45) {
       fontSize: 15,
       marginTop: 6
     }
-  }, "Полка пока пуста. Всё купленное из «Нужного» появится здесь само.")) : groups.map(_ref46 => {
-    let c = _ref46.c,
-      items = _ref46.items;
+  }, "Полка пока пуста. Всё купленное из «Нужного» появится здесь само.")) : groups.map(_ref48 => {
+    let c = _ref48.c,
+      items = _ref48.items;
     const catOpen = !closedCats[c.v];
     return /*#__PURE__*/React.createElement("div", {
       key: c.v,
@@ -11656,12 +11785,12 @@ function paintPaper(ctx, W, H) {
   ctx.fillStyle = "#f7f6ef";
   ctx.fillRect(0, 0, W, H);
   const spots = [["#a8c39a", W * 0.1, H * 0.06, W * 0.42], ["#dce6d5", W * 0.85, H * 0.1, W * 0.4], ["#f0dfe4", W * 0.9, H * 0.9, W * 0.36], ["#dde8ec", W * 0.15, H * 0.95, W * 0.4]];
-  spots.forEach(_ref47 => {
-    let _ref48 = _slicedToArray(_ref47, 4),
-      col = _ref48[0],
-      x = _ref48[1],
-      y = _ref48[2],
-      r = _ref48[3];
+  spots.forEach(_ref49 => {
+    let _ref50 = _slicedToArray(_ref49, 4),
+      col = _ref50[0],
+      x = _ref50[1],
+      y = _ref50[2],
+      r = _ref50[3];
     const g = ctx.createRadialGradient(x, y, 0, x, y, r);
     g.addColorStop(0, col);
     g.addColorStop(1, "rgba(255,255,255,0)");
@@ -11988,12 +12117,12 @@ async function sharePostcard(cv, filename, showToast) {
 }
 
 /* ─────────────────────────  Статистика сада  ───────────────────────── */
-function StatsView(_ref49) {
-  let plants = _ref49.plants,
-    archived = _ref49.archived,
-    journal = _ref49.journal,
-    profile = _ref49.profile,
-    onOpen = _ref49.onOpen;
+function StatsView(_ref51) {
+  let plants = _ref51.plants,
+    archived = _ref51.archived,
+    journal = _ref51.journal,
+    profile = _ref51.profile,
+    onOpen = _ref51.onOpen;
   if (plants.length === 0) {
     return /*#__PURE__*/React.createElement("div", {
       style: {
@@ -12080,32 +12209,6 @@ function StatsView(_ref49) {
     spotCount[s] = (spotCount[s] || 0) + 1;
   });
   const topSpot = Object.keys(spotCount).map(k => [k, spotCount[k]]).sort((a, b) => b[1] - a[1])[0];
-  const Tile = _ref50 => {
-    let value = _ref50.value,
-      label = _ref50.label;
-    return /*#__PURE__*/React.createElement("div", {
-      style: {
-        background: C.card,
-        border: "1px solid ".concat(C.line),
-        borderRadius: R.md,
-        padding: "14px 16px"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        ...serif,
-        fontSize: 26,
-        color: C.ink,
-        lineHeight: 1.1
-      }
-    }, value), /*#__PURE__*/React.createElement("div", {
-      style: {
-        ...sans,
-        fontSize: 12,
-        color: C.moss,
-        marginTop: 4
-      }
-    }, label));
-  };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h2", {
     style: {
       ...serif,
@@ -12121,28 +12224,36 @@ function StatsView(_ref49) {
       gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
       gap: 10
     }
-  }, /*#__PURE__*/React.createElement(Tile, {
+  }, /*#__PURE__*/React.createElement(StatTile, {
+    icon: "leaf",
     value: plants.length,
     label: "".concat(plural(plants.length, "растение", "растения", "растений"), " в саду")
-  }), /*#__PURE__*/React.createElement(Tile, {
+  }), /*#__PURE__*/React.createElement(StatTile, {
+    icon: "home",
     value: home,
     label: "живут дома"
-  }), /*#__PURE__*/React.createElement(Tile, {
+  }), /*#__PURE__*/React.createElement(StatTile, {
+    icon: "sun",
     value: balcony,
     label: "на балконе"
-  }), /*#__PURE__*/React.createElement(Tile, {
+  }), /*#__PURE__*/React.createElement(StatTile, {
+    icon: "drop",
     value: waters30,
     label: "".concat(plural(waters30, "полив", "полива", "поливов"), " за месяц")
-  }), /*#__PURE__*/React.createElement(Tile, {
+  }), /*#__PURE__*/React.createElement(StatTile, {
+    icon: "sparkle",
     value: feeds30,
     label: "".concat(plural(feeds30, "подкормка", "подкормки", "подкормок"), " за месяц")
-  }), avgYears != null && /*#__PURE__*/React.createElement(Tile, {
+  }), avgYears != null && /*#__PURE__*/React.createElement(StatTile, {
+    icon: "clock",
     value: fmtStay(avgYears),
     label: "средний стаж жильцов"
-  }), topSpot && topSpot[1] > 1 && /*#__PURE__*/React.createElement(Tile, {
+  }), topSpot && topSpot[1] > 1 && /*#__PURE__*/React.createElement(StatTile, {
+    icon: "chart",
     value: topSpot[1],
     label: "самое населённое: ".concat(topSpot[0])
-  }), archived.length > 0 && /*#__PURE__*/React.createElement(Tile, {
+  }), archived.length > 0 && /*#__PURE__*/React.createElement(StatTile, {
+    icon: "archive",
     value: archived.length,
     label: "были с нами"
   })), /*#__PURE__*/React.createElement("h3", {
@@ -12529,7 +12640,7 @@ function ProfileSetup(props) {
     style: {
       marginBottom: 22,
       padding: "14px 16px",
-      background: C.waterSoft,
+      background: C.paperDeep,
       border: "1px solid ".concat(C.line),
       borderRadius: R.md
     }
@@ -12587,7 +12698,7 @@ function ProfileSetup(props) {
     style: {
       marginBottom: 12,
       padding: 12,
-      background: s.isBalcony ? C.waterSoft : C.card,
+      background: s.isBalcony ? C.paperDeep : C.card,
       border: "1px solid ".concat(C.line),
       borderRadius: R.md
     }
@@ -12861,9 +12972,9 @@ function ProfileSetup(props) {
   }, {
     d: 0,
     t: "Вс"
-  }].map(_ref51 => {
-    let d = _ref51.d,
-      t = _ref51.t;
+  }].map(_ref52 => {
+    let d = _ref52.d,
+      t = _ref52.t;
     return /*#__PURE__*/React.createElement(Chip, {
       key: d,
       small: true,
@@ -13132,10 +13243,10 @@ function ProfileSetup(props) {
     style: {
       marginTop: 10
     }
-  }, storageStats.byPlant.slice(0, 12).map(_ref52 => {
-    let p = _ref52.p,
-      bytes = _ref52.bytes,
-      shots = _ref52.shots;
+  }, storageStats.byPlant.slice(0, 12).map(_ref53 => {
+    let p = _ref53.p,
+      bytes = _ref53.bytes,
+      shots = _ref53.shots;
     return /*#__PURE__*/React.createElement("button", {
       key: p.id,
       onClick: () => onOpenPlant(p.id),
@@ -13503,14 +13614,14 @@ function ProfileSetup(props) {
    Вспышки живут здесь целиком: на «Сегодня» показывается только то,
    что требует действия именно сегодня. Никаких напоминаний осмотреть —
    в этот раздел заходят сами. */
-function HealthView(_ref53) {
-  let outbreaks = _ref53.outbreaks,
-    plants = _ref53.plants,
-    inventory = _ref53.inventory,
-    profile = _ref53.profile,
-    onOpen = _ref53.onOpen,
-    onBack = _ref53.onBack,
-    onStart = _ref53.onStart;
+function HealthView(_ref54) {
+  let outbreaks = _ref54.outbreaks,
+    plants = _ref54.plants,
+    inventory = _ref54.inventory,
+    profile = _ref54.profile,
+    onOpen = _ref54.onOpen,
+    onBack = _ref54.onBack,
+    onStart = _ref54.onStart;
   const _useState307 = useState(false),
     _useState308 = _slicedToArray(_useState307, 2),
     findOpen = _useState308[0],
@@ -13541,6 +13652,7 @@ function HealthView(_ref53) {
     tally[o.pest] = (tally[o.pest] || 0) + 1;
   });
   const tallyList = Object.keys(tally).sort((a, b) => tally[b] - tally[a]);
+  const watchNow = live.reduce((acc, o) => acc + (o.members || []).filter(m => m.role === "watch" && !m.clearedAt).length, 0);
   const alive = (plants || []).filter(p => (p.status || "active") === "active");
   const inZone = z => alive.filter(p => zoneOf(p) === z);
   const zones = [];
@@ -13590,11 +13702,32 @@ function HealthView(_ref53) {
     }
   }, "Вредители расселяются по месту, поэтому курс здесь общий на всю зону: одна дата обработки на всех, и видно, кого пропустили — именно от пропущенного соседа вредитель и возвращается."), /*#__PURE__*/React.createElement("div", {
     style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+      gap: 10,
+      marginBottom: 18
+    }
+  }, /*#__PURE__*/React.createElement(StatTile, {
+    icon: "bandage",
+    tone: live.length ? "warn" : undefined,
+    value: live.length,
+    label: live.length ? "".concat(plural(live.length, "курс идёт", "курса идут", "курсов идут"), " сейчас") : "курсов сейчас нет"
+  }), /*#__PURE__*/React.createElement(StatTile, {
+    icon: "search",
+    value: watchNow,
+    label: "".concat(plural(watchNow, "растение", "растения", "растений"), " под наблюдением")
+  }), /*#__PURE__*/React.createElement(StatTile, {
+    icon: "bug",
+    tone: lastYear.length >= 2 ? "sun" : undefined,
+    value: lastYear.length,
+    label: "".concat(plural(lastYear.length, "вспышка", "вспышки", "вспышек"), " за год")
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
       marginBottom: 18
     }
   }, /*#__PURE__*/React.createElement(Btn, {
     small: true,
-    tone: findOpen ? "ghost" : "blossom",
+    tone: findOpen ? "ghost" : "moss",
     icon: "bug",
     onClick: () => setFindOpen(!findOpen),
     pressed: findOpen
@@ -13966,13 +14099,13 @@ function HealthView(_ref53) {
     }
   }, (o.members || []).filter(m => m.role === "infected").map(m => nameOf(m.plantId)).join(", "))))));
 }
-function VacationView(_ref54) {
-  let plants = _ref54.plants,
-    profile = _ref54.profile,
-    apartment = _ref54.apartment,
-    weather = _ref54.weather,
-    onBack = _ref54.onBack,
-    showToast = _ref54.showToast;
+function VacationView(_ref55) {
+  let plants = _ref55.plants,
+    profile = _ref55.profile,
+    apartment = _ref55.apartment,
+    weather = _ref55.weather,
+    onBack = _ref55.onBack,
+    showToast = _ref55.showToast;
   const _useState315 = useState(null),
     _useState316 = _slicedToArray(_useState315, 2),
     prep = _useState316[0],
@@ -14029,9 +14162,9 @@ function VacationView(_ref54) {
     };
   }) : [];
   const byDate = {};
-  plan.forEach(_ref55 => {
-    let p = _ref55.p,
-      dates = _ref55.dates;
+  plan.forEach(_ref56 => {
+    let p = _ref56.p,
+      dates = _ref56.dates;
     return dates.forEach(k => {
       (byDate[k] = byDate[k] || []).push(p);
     });
@@ -14092,8 +14225,8 @@ function VacationView(_ref54) {
     const drinkers = plan.filter(x => x.dates.length);
     if (drinkers.length) {
       s += "\nОсобенности:\n";
-      drinkers.forEach(_ref56 => {
-        let p = _ref56.p;
+      drinkers.forEach(_ref57 => {
+        let p = _ref57.p;
         const c = p.care || {};
         s += "• ".concat(p.nickname || p.name, ": ").concat(c.dryDownTarget || c.wateringNote || "умеренно, отстоянной водой комнатной температуры", "\n");
       });
@@ -14123,8 +14256,8 @@ function VacationView(_ref54) {
     const esc = s => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const drinkers = plan.filter(x => x.dates.length);
     const photo = p => plantPhoto(p) ? "<img src=\"".concat(plantPhoto(p), "\" alt=\"\">") : "<span class='ph'></span>";
-    const html = "<!DOCTYPE html><html lang=\"ru\"><head><meta charset=\"utf-8\"><title>Памятка по поливу</title>\n<style>body{font-family:Georgia,serif;color:#2e4433;background:#f7f6ef;max-width:680px;margin:0 auto;padding:28px 20px}\nh1{font-weight:400;font-size:26px;margin:0 0 4px}h2{font-weight:400;font-size:18px;margin:24px 0 8px;border-bottom:1px solid #d8d6c6;padding-bottom:4px}\n.muted{color:#7d9b76;font-style:italic}.d{margin:7px 0}\nli{margin:5px 0;font-family:-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.5}\n.rules{background:#dde8ec;border-radius:12px;padding:12px 16px;font-family:-apple-system,sans-serif;font-size:14px;line-height:1.6}\n.p{display:inline-flex;align-items:center;gap:6px;margin:4px 10px 4px 0}\n.p img,.p .ph{width:34px;height:34px;border-radius:8px;object-fit:cover;background:#dce6d5;display:inline-block}\n.no{background:#f0dfe4;border-radius:12px;padding:12px 16px;font-family:-apple-system,sans-serif;font-size:14px}\n@media print{body{background:#fff}}</style></head><body>\n<h1>Памятка по поливу сада</h1>\n<div class=\"muted\">".concat(esc(fmtDay(from)), " — ").concat(esc(fmtDay(to)), "</div>\n<div class=\"rules\" style=\"margin-top:16px\">\n<b>Три правила</b><br>\n1. Перед поливом проверьте землю пальцем на две фаланги вглубь. Влажно — не поливайте: пропуск безопаснее лишней воды.<br>\n2. Лейте до появления воды из дренажного отверстия, через 20 минут слейте из поддона.<br>\n3. Ничего не опрыскивайте и не подкармливайте — это подождёт.\n</div>\n").concat(prepGroups.length ? "<h2>Подготовка к отъезду</h2>".concat(prepGroups.map(g => "<div class=\"d\"><b>".concat(esc(g.title), "</b></div><ul>").concat(prep[g.key].map(it => "<li>".concat(esc(it), "</li>")).join(""), "</ul>")).join("")) : "", "\n<h2>Календарь</h2>\n").concat(days.map(k => "<div class=\"d\"><b>".concat(esc(fmtDay(k)), "</b><br>").concat(byDate[k].map(p => "<span class=\"p\">".concat(photo(p), " ").concat(esc((p.nickname || p.name) + (p.spot ? " (" + shortSpot(p.spot) + ")" : "")), "</span>")).join(""), "</div>")).join(""), "\n").concat(drinkers.length ? "<h2>Особенности</h2><ul>".concat(drinkers.map(_ref57 => {
-      let p = _ref57.p;
+    const html = "<!DOCTYPE html><html lang=\"ru\"><head><meta charset=\"utf-8\"><title>Памятка по поливу</title>\n<style>body{font-family:Georgia,serif;color:#2e4433;background:#f7f6ef;max-width:680px;margin:0 auto;padding:28px 20px}\nh1{font-weight:400;font-size:26px;margin:0 0 4px}h2{font-weight:400;font-size:18px;margin:24px 0 8px;border-bottom:1px solid #d8d6c6;padding-bottom:4px}\n.muted{color:#7d9b76;font-style:italic}.d{margin:7px 0}\nli{margin:5px 0;font-family:-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.5}\n.rules{background:#dde8ec;border-radius:12px;padding:12px 16px;font-family:-apple-system,sans-serif;font-size:14px;line-height:1.6}\n.p{display:inline-flex;align-items:center;gap:6px;margin:4px 10px 4px 0}\n.p img,.p .ph{width:34px;height:34px;border-radius:8px;object-fit:cover;background:#dce6d5;display:inline-block}\n.no{background:#f0dfe4;border-radius:12px;padding:12px 16px;font-family:-apple-system,sans-serif;font-size:14px}\n@media print{body{background:#fff}}</style></head><body>\n<h1>Памятка по поливу сада</h1>\n<div class=\"muted\">".concat(esc(fmtDay(from)), " — ").concat(esc(fmtDay(to)), "</div>\n<div class=\"rules\" style=\"margin-top:16px\">\n<b>Три правила</b><br>\n1. Перед поливом проверьте землю пальцем на две фаланги вглубь. Влажно — не поливайте: пропуск безопаснее лишней воды.<br>\n2. Лейте до появления воды из дренажного отверстия, через 20 минут слейте из поддона.<br>\n3. Ничего не опрыскивайте и не подкармливайте — это подождёт.\n</div>\n").concat(prepGroups.length ? "<h2>Подготовка к отъезду</h2>".concat(prepGroups.map(g => "<div class=\"d\"><b>".concat(esc(g.title), "</b></div><ul>").concat(prep[g.key].map(it => "<li>".concat(esc(it), "</li>")).join(""), "</ul>")).join("")) : "", "\n<h2>Календарь</h2>\n").concat(days.map(k => "<div class=\"d\"><b>".concat(esc(fmtDay(k)), "</b><br>").concat(byDate[k].map(p => "<span class=\"p\">".concat(photo(p), " ").concat(esc((p.nickname || p.name) + (p.spot ? " (" + shortSpot(p.spot) + ")" : "")), "</span>")).join(""), "</div>")).join(""), "\n").concat(drinkers.length ? "<h2>Особенности</h2><ul>".concat(drinkers.map(_ref58 => {
+      let p = _ref58.p;
       return "<li><b>".concat(esc(p.nickname || p.name), "</b>: ").concat(esc(p.care && (p.care.dryDownTarget || p.care.wateringNote) || "умеренно, отстоянной водой комнатной температуры"), "</li>");
     }).join(""), "</ul>") : "", "\n").concat(resting.length ? "<h2>Не трогать</h2><div class=\"no\">Полив в этот период не нужен: ".concat(resting.map(p => esc(p.nickname || p.name)).join(", "), ".</div>") : "", "\n<p class=\"muted\" style=\"margin-top:24px\">Спасибо, что присматриваете за садом! 🌱</p>\n</body></html>");
     const url = URL.createObjectURL(new Blob([html], {
